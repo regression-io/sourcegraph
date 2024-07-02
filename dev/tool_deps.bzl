@@ -4,11 +4,13 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 
 DOCSITE_VERSION = "1.9.4"
 SRC_CLI_VERSION = "5.3.0"
+KUBEBUILDER_ASSETS_VERSION = "1.28.0"
 CTAGS_VERSION = "6.0.0.2783f009"
 PACKER_VERSION = "1.8.3"
 P4_FUSION_VERSION = "v1.13.2-sg.04a293a"
 GH_VERSION = "2.45.0"
 PGUTILS_VERSION = "ad082497"
+LINEAR_SDK_VERSION = "21.1.0"
 
 GH_BUILDFILE = """
 filegroup(
@@ -22,6 +24,14 @@ SRC_CLI_BUILDFILE = """
 filegroup(
     name = "src-cli-{}",
     srcs = ["src"],
+    visibility = ["//visibility:public"],
+)
+"""
+
+KUBEBUILDER_ASSETS_BUILDFILE = """
+filegroup(
+    name = "kubebuilder-assets",
+    srcs = glob(["*"]),
     visibility = ["//visibility:public"],
 )
 """
@@ -52,6 +62,16 @@ package(default_visibility = ["//visibility:public"])
 filegroup(
     name = "files",
     srcs = glob(["**/*"]),
+)
+"""
+
+CHROMIUM_BUILDFILE = """
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+js_library(
+    name = "chromium",
+    srcs = ["{}"],
+    data = glob(["**/*"]),
+    visibility = ["//visibility:public"],
 )
 """
 
@@ -100,6 +120,31 @@ def tool_deps():
         build_file_content = SRC_CLI_BUILDFILE.format("darwin-arm64"),
         sha256 = "d2100e9dce86036c405490b89ab0dec40ee427884dead883c4ba69cc474caf45",
         url = "https://github.com/sourcegraph/src-cli/releases/download/{0}/src-cli_{0}_darwin_arm64.tar.gz".format(SRC_CLI_VERSION),
+    )
+
+    # Needed for internal/appliance tests
+    http_archive(
+        name = "kubebuilder-assets-darwin-arm64",
+        build_file_content = KUBEBUILDER_ASSETS_BUILDFILE,
+        sha256 = "c87c6b3c0aec4233e68a12dc9690bcbe2f8d6cd72c23e670602b17b2d7118325",
+        urls = ["https://storage.googleapis.com/kubebuilder-tools/kubebuilder-tools-{}-darwin-arm64.tar.gz".format(KUBEBUILDER_ASSETS_VERSION)],
+        strip_prefix = "kubebuilder/bin",
+    )
+
+    http_archive(
+        name = "kubebuilder-assets-darwin-amd64",
+        build_file_content = KUBEBUILDER_ASSETS_BUILDFILE,
+        sha256 = "a02e33a3981712c8d2702520f95357bd6c7d03d24b83a4f8ac1c89a9ba4d78c1",
+        urls = ["https://storage.googleapis.com/kubebuilder-tools/kubebuilder-tools-{}-darwin-amd64.tar.gz".format(KUBEBUILDER_ASSETS_VERSION)],
+        strip_prefix = "kubebuilder/bin",
+    )
+
+    http_archive(
+        name = "kubebuilder-assets-linux-amd64",
+        build_file_content = KUBEBUILDER_ASSETS_BUILDFILE,
+        sha256 = "8c816871604cbe119ca9dd8072b576552ae369b96eebc3cdaaf50edd7e3c0c7b",
+        urls = ["https://storage.googleapis.com/kubebuilder-tools/kubebuilder-tools-{}-linux-amd64.tar.gz".format(KUBEBUILDER_ASSETS_VERSION)],
+        strip_prefix = "kubebuilder/bin",
     )
 
     # universal-ctags
@@ -298,4 +343,48 @@ def tool_deps():
         url = "https://github.com/cedarai/embedded-postgres-binaries/releases/download/13.6-with-tools-20220304/postgresql-13.6-darwin-arm64.txz",
         build_file_content = PGUTILS_BUILDFILE,
         sha256 = "32fd723dc8a64efaebc18e78f293bc7c5523fbb659a82be0f9da900f3a28c510",
+    )
+
+    http_file(
+        name = "linear-sdk-graphql-schema",
+        url = "https://raw.githubusercontent.com/linear/linear/%40linear/sdk%40{0}/packages/sdk/src/schema.graphql".format(LINEAR_SDK_VERSION),
+        integrity = "sha256-9WUYPWt4iWcE/fhm6guqrfbk41y+Hb3jIR9I0/yCzwk=",
+    )
+
+    # Chromium deps for playwright
+    # to find the update URLs try running:
+    # npx playwright install --dry-run
+    http_archive(
+        name = "chromium-darwin-arm64",
+        integrity = "sha256-5wj+iZyUU7WSAyA8Unriu9swRag3JyAxUUgGgVM+fTw=",
+        url = "https://playwright.azureedge.net/builds/chromium/1117/chromium-mac-arm64.zip",
+        build_file_content = CHROMIUM_BUILDFILE.format("chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+    )
+
+    http_archive(
+        name = "chromium-darwin-x86_64",
+        integrity = "sha256-kzTbTaznfQFD9HK1LMrDGdcs1ZZiq2Rfv+l5qjM5Cus=",
+        url = "https://playwright.azureedge.net/builds/chromium/1117/chromium-mac.zip",
+        build_file_content = CHROMIUM_BUILDFILE.format("chrome-mac/Chromium.app/Contents/MacOS/Chromium"),
+    )
+
+    http_archive(
+        name = "chromium-linux-x86_64",
+        integrity = "sha256-T7teJtSwhf7LIpQMEp4zp3Ey3T/p4Y7dQI/7VGVHdkE=",
+        url = "https://playwright.azureedge.net/builds/chromium/1117/chromium-linux.zip",
+        build_file_content = CHROMIUM_BUILDFILE.format("chrome-linux/chrome"),
+    )
+
+    http_file(
+        name = "honeyvent-linux-x86_64",
+        url = "https://github.com/honeycombio/honeyvent/releases/download/v1.1.3/honeyvent-linux-amd64",
+        sha256 = "3810ad6d70836d5b4f2ef5de27c3c8a3ed4f35bb331635137d44223e285d6fc5",
+        executable = True,
+    )
+
+    http_file(
+        name = "honeyvent-darwin-x86_64",
+        url = "https://github.com/honeycombio/honeyvent/releases/download/v1.1.3/honeyvent-darwin-amd64",
+        sha256 = "c9acaab8a48aa3345fd323c4315c8aaca52b2f6ce4c6f83b6fa162cd4c516725",
+        executable = True,
     )

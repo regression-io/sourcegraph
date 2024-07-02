@@ -24,20 +24,20 @@ func TestIsFlaggedAnthropicRequest(t *testing.T) {
 		PromptTokenFlaggingLimit:       18000,
 		PromptTokenBlockingLimit:       20000,
 		MaxTokensToSample:              0, // Not used within isFlaggedRequest.
-		MaxTokensToSampleFlaggingLimit: 1000,
-		ResponseTokenBlockingLimit:     1000,
+		MaxTokensToSampleFlaggingLimit: 4000,
+		ResponseTokenBlockingLimit:     4000,
 		RequestBlockingEnabled:         true,
 	}
 	cfgWithPreamble := config.FlaggingConfig{
 		PromptTokenFlaggingLimit:       18000,
 		PromptTokenBlockingLimit:       20000,
 		MaxTokensToSample:              0, // Not used within isFlaggedRequest.
-		MaxTokensToSampleFlaggingLimit: 1000,
-		ResponseTokenBlockingLimit:     1000,
+		MaxTokensToSampleFlaggingLimit: 4000,
+		ResponseTokenBlockingLimit:     4000,
 		RequestBlockingEnabled:         true,
 		AllowedPromptPatterns:          []string{strings.ToLower(validPreamble)},
 	}
-	tk, err := tokenizer.NewTokenizer(tokenizer.AnthropicModel)
+	tk, err := tokenizer.NewCL100kBaseTokenizer()
 	require.NoError(t, err)
 
 	// Helper function for calling the AnthropicHandlerMethod's shouldFlagRequest, using the supplied
@@ -114,8 +114,9 @@ func TestIsFlaggedAnthropicRequest(t *testing.T) {
 		ar := anthropicRequest{Model: "claude-2", Prompt: validPreamble + " " + longPrompt + "bad phrase"}
 		result, err := callShouldFlagRequest(t, ar, cfgWithBadPhrase)
 		require.NoError(t, err)
-		// for now, we should not flag requests purely because of bad phrases
-		require.False(t, result.IsFlagged())
+		// As of https://sourcegraph.slack.com/archives/C06062P5TS5/p1716896478893949?thread_ts=1716475553.409679&cid=C06062P5TS5), we consider bad phrases to be sufficient for flagging (and blocking)
+		require.True(t, result.IsFlagged())
+		require.True(t, result.shouldBlock)
 	})
 
 	t.Run("high prompt token count (above block limit)", func(t *testing.T) {
@@ -135,7 +136,7 @@ func TestIsFlaggedAnthropicRequest(t *testing.T) {
 }
 
 func TestAnthropicRequestJSON(t *testing.T) {
-	tk, err := tokenizer.NewTokenizer(tokenizer.AnthropicModel)
+	tk, err := tokenizer.NewCL100kBaseTokenizer()
 	require.NoError(t, err)
 
 	ar := anthropicRequest{Prompt: "Hello world"}
@@ -152,7 +153,7 @@ func TestAnthropicRequestJSON(t *testing.T) {
 }
 
 func TestAnthropicRequestGetPromptTokenCount(t *testing.T) {
-	tk, err := tokenizer.NewTokenizer(tokenizer.AnthropicModel)
+	tk, err := tokenizer.NewCL100kBaseTokenizer()
 	require.NoError(t, err)
 
 	originalRequest := anthropicRequest{Prompt: "Hello world"}

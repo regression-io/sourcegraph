@@ -8,10 +8,10 @@ go_library(
         "stream.go",
     ],
     importpath = "github.com/sourcegraph/sourcegraph/cmd/frontend/internal/compute/streaming",
+    tags = [TAG_PLATFORM_SEARCH],
     visibility = ["//cmd/frontend:__subpackages__"],
     deps = [
         "//internal/compute",
-        "//internal/conf",
         "//internal/database",
         "//internal/gitserver",
         "//internal/search",

@@ -134,14 +134,14 @@ func (r *Cache) GetInt64(key string) (int64, bool, error) {
 // IncrByInt64 increments the integer value of a key by the given amount.
 // It returns the new value after the increment.
 func (r *Cache) IncrByInt64(key string, value int64) (int64, error) {
-	newValue, err := kv().IncrByInt64(r.rkeyPrefix()+key, value)
+	newValue, err := r.kv().IncrByInt64(r.rkeyPrefix()+key, value)
 	if err != nil {
 		return newValue, errors.Newf("failed to execute redis command", "cmd", "INCRBY", "error", err)
 	}
 
 	if r.ttlSeconds > 0 {
 		// Optionally, set a TTL on the key if ttlSeconds is specified for the cache.
-		err = kv().Expire(r.rkeyPrefix()+key, r.ttlSeconds)
+		err = r.kv().Expire(r.rkeyPrefix()+key, r.ttlSeconds)
 		if err != nil {
 			return newValue, errors.Newf("failed to execute redis command", "cmd", "INCRBY", "error", err)
 		}
@@ -153,14 +153,14 @@ func (r *Cache) IncrByInt64(key string, value int64) (int64, error) {
 // DecrByInt64 increments the decrements value of a key by the given amount.
 // It returns the new value after the increment.
 func (r *Cache) DecrByInt64(key string, value int64) (int64, error) {
-	newValue, err := kv().DecrByInt64(r.rkeyPrefix()+key, value)
+	newValue, err := r.kv().DecrByInt64(r.rkeyPrefix()+key, value)
 	if err != nil {
 		return newValue, errors.Newf("failed to execute redis command", "cmd", "DECRBY", "error", err)
 	}
 
 	if r.ttlSeconds > 0 {
 		// Optionally, set a TTL on the key if ttlSeconds is specified for the cache.
-		err = kv().Expire(r.rkeyPrefix()+key, r.ttlSeconds)
+		err = r.kv().Expire(r.rkeyPrefix()+key, r.ttlSeconds)
 		if err != nil {
 			return newValue, errors.Newf("failed to execute redis command", "cmd", "DECRBY", "error", err)
 		}
@@ -258,6 +258,8 @@ type TB interface {
 	Helper()
 }
 
+const TestAddr = "127.0.0.1:6379"
+
 // SetupForTest adjusts the globalPrefix and clears it out. You will have
 // conflicts if you do `t.Parallel()`
 func SetupForTest(t testing.TB) {
@@ -267,7 +269,7 @@ func SetupForTest(t testing.TB) {
 		MaxIdle:     3,
 		IdleTimeout: 240 * time.Second,
 		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", "127.0.0.1:6379")
+			return redis.Dial("tcp", TestAddr)
 		},
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
 			_, err := c.Do("PING")

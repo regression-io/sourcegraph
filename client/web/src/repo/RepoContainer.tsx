@@ -1,25 +1,25 @@
 import React, {
     createContext,
-    type FC,
-    type PropsWithChildren,
-    type RefObject,
     Suspense,
     useContext,
     useEffect,
     useMemo,
     useRef,
     useState,
+    type FC,
+    type PropsWithChildren,
+    type RefObject,
 } from 'react'
 
 import classNames from 'classnames'
 import { escapeRegExp } from 'lodash'
 import { createPortal } from 'react-dom'
-import { type Location, useLocation, Route, Routes } from 'react-router-dom'
+import { Route, Routes, useLocation, type Location } from 'react-router-dom'
 import { NEVER, of } from 'rxjs'
 import { catchError, switchMap } from 'rxjs/operators'
 
 import type { StreamingSearchResultsListProps } from '@sourcegraph/branded'
-import { asError, type ErrorLike, isErrorLike, repeatUntil } from '@sourcegraph/common'
+import { asError, isErrorLike, repeatUntil, type ErrorLike } from '@sourcegraph/common'
 import {
     isCloneInProgressErrorLike,
     isRepoSeeOtherErrorLike,
@@ -42,7 +42,8 @@ import type { BatchChangesProps } from '../batches'
 import type { CodeIntelligenceProps } from '../codeintel'
 import { RepoContainerEditor } from '../cody/components/RepoContainerEditor'
 import { CodySidebar } from '../cody/sidebar'
-import { useCodySidebar, useSidebarSize, CODY_SIDEBAR_SIZES } from '../cody/sidebar/Provider'
+import { CODY_SIDEBAR_SIZES, useCodySidebar, useSidebarSize } from '../cody/sidebar/Provider'
+import { useCodyIgnore } from '../cody/useCodyIgnore'
 import type { BreadcrumbSetters, BreadcrumbsProps } from '../components/Breadcrumbs'
 import { RouteError } from '../components/ErrorBoundary'
 import { HeroPage } from '../components/HeroPage'
@@ -55,11 +56,10 @@ import { useV2QueryInput } from '../search/useV2QueryInput'
 import { useNavbarQueryState } from '../stores'
 import { EventName } from '../util/constants'
 import type { RouteV6Descriptor } from '../util/contributions'
-import { getLicenseFeatures } from '../util/license'
 import { parseBrowserRepoURL } from '../util/url'
 
 import { GoToCodeHostAction } from './actions/GoToCodeHostAction'
-import { fetchFileExternalLinks, type ResolvedRevision, resolveRepoRevision, type Repo } from './backend'
+import { fetchFileExternalLinks, resolveRepoRevision, type Repo, type ResolvedRevision } from './backend'
 import { AskCodyButton } from './cody/AskCodyButton'
 import { RepoContainerError } from './RepoContainerError'
 import { RepoHeader, type RepoHeaderContributionsLifecycleProps } from './RepoHeader'
@@ -344,6 +344,8 @@ const RepoUserContainer: FC<RepoUserContainerProps> = ({
 
     const { sidebarSize, setSidebarSize: setCodySidebarSize } = useSidebarSize()
 
+    const { isRepoIgnored } = useCodyIgnore()
+
     /* eslint-disable react-hooks/exhaustive-deps */
     const codySidebarSize = useMemo(() => sidebarSize, [isCodySidebarOpen])
     /* eslint-enable react-hooks/exhaustive-deps */
@@ -395,6 +397,7 @@ const RepoUserContainer: FC<RepoUserContainerProps> = ({
                 repoName={repoName}
                 viewerCanAdminister={viewerCanAdminister}
                 repoFetchError={repoOrError as ErrorLike}
+                telemetryRecorder={props.platformContext.telemetryRecorder}
             />
         )
     }
@@ -432,8 +435,7 @@ const RepoUserContainer: FC<RepoUserContainerProps> = ({
 
     // must exactly match how the revision was encoded in the URL
     const repoNameAndRevision = `${repoName}${typeof rawRevision === 'string' ? `@${rawRevision}` : ''}`
-    const licenseFeatures = getLicenseFeatures()
-    const showAskCodyBtn = licenseFeatures.isCodyEnabled && !isCodySidebarOpen
+    const showAskCodyBtn = window.context?.codyEnabledForCurrentUser && !isRepoIgnored(repoName) && !isCodySidebarOpen
 
     return (
         <>
@@ -490,6 +492,7 @@ const RepoUserContainer: FC<RepoUserContainerProps> = ({
                         source="repoHeader"
                         key="go-to-code-host"
                         externalLinks={externalLinks}
+                        telemetryRecorder={props.platformContext.telemetryRecorder}
                     />
                 )}
             </RepoHeaderContributionPortal>
@@ -555,10 +558,9 @@ const RepoUserContainer: FC<RepoUserContainerProps> = ({
                 </Routes>
             </Suspense>
 
-            {isCodySidebarOpen && (
+            {!isRepoIgnored(repoName) && isCodySidebarOpen && repo && (
                 <RepoContainerRootPortal>
                     <Panel
-                        className="cody-sidebar-panel"
                         position="right"
                         ariaLabel="Cody sidebar"
                         maxSize={CODY_SIDEBAR_SIZES.max}
@@ -566,8 +568,11 @@ const RepoUserContainer: FC<RepoUserContainerProps> = ({
                         defaultSize={codySidebarSize || CODY_SIDEBAR_SIZES.default}
                         storageKey="size-cache-cody-sidebar"
                         onResize={setCodySidebarSize}
+                        className={classNames('cody-sidebar-panel', styles.codySidebarPanel)}
                     >
                         <CodySidebar
+                            repository={repo}
+                            filePath={filePath}
                             onClose={() => setIsCodySidebarOpen(false)}
                             authenticatedUser={props.authenticatedUser}
                             telemetryRecorder={props.platformContext.telemetryRecorder}

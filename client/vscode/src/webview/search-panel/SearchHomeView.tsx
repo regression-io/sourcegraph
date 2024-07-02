@@ -167,6 +167,7 @@ export const SearchHomeView: React.FunctionComponent<React.PropsWithChildren<Sea
                         caseSensitive={caseSensitive}
                         setCaseSensitivity={setCaseSensitivity}
                         patternType={patternType}
+                        defaultPatternType={SearchPatternType.standard}
                         setPatternType={setPatternType}
                         searchMode={searchMode}
                         setSearchMode={setSearchMode}
@@ -185,6 +186,7 @@ export const SearchHomeView: React.FunctionComponent<React.PropsWithChildren<Sea
                         getUserSearchContextNamespaces={getUserSearchContextNamespaces}
                         fetchStreamSuggestions={fetchStreamSuggestions}
                         telemetryService={platformContext.telemetryService}
+                        telemetryRecorder={platformContext.telemetryRecorder}
                         platformContext={platformContext}
                         className={classNames('flex-grow-1 flex-shrink-past-contents', styles.searchBox)}
                         containerClassName={styles.searchBoxContainer}

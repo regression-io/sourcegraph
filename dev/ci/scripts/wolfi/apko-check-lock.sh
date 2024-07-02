@@ -12,6 +12,8 @@ IS_MAIN=$([ "$BRANCH" = "$MAIN_BRANCH" ] && echo "true" || echo "false")
 echo "~~~ :aspect: :stethoscope: Agent Health check"
 /etc/aspect/workflows/bin/agent_health_check
 
+echo "~~~ :lock: :question: Check lockfiles are up to date"
+
 aspectRC="/tmp/aspect-generated.bazelrc"
 rosetta bazelrc >"$aspectRC"
 export BAZELRC="$aspectRC"
@@ -46,7 +48,7 @@ Wolfi image configuration and apko lockfiles are not in sync. Fix by running:
 sg wolfi lock
 \`\`\`
 
-Check the <a href="https://sourcegraph.com/docs/dev/how-to/wolfi/add_update_images#modify-an-existing-base-image">Wolfi documentation</a> for more information.
+Check the <a href="https://docs-legacy.sourcegraph.com/dev/how-to/wolfi/add_update_images#modify-an-existing-base-image">Wolfi documentation</a> for more information.
 EOF
   fi
 fi

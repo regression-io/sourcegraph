@@ -9,7 +9,6 @@ import (
 	"github.com/elimity-com/scim"
 	scimerrors "github.com/elimity-com/scim/errors"
 	"github.com/elimity-com/scim/optional"
-	"github.com/elimity-com/scim/schema"
 
 	"github.com/sourcegraph/log"
 
@@ -47,22 +46,6 @@ const (
 	AttrExternalId    = "externalId"
 	AttrActive        = "active"
 )
-
-// UserResourceHandler implements the scim.ResourceHandler interface for users.
-type UserResourceHandler struct {
-	ctx              context.Context
-	observationCtx   *observation.Context
-	db               database.DB
-	coreSchema       schema.Schema
-	schemaExtensions []scim.SchemaExtension
-}
-
-func (h *UserResourceHandler) getLogger() log.Logger {
-	if h.observationCtx != nil && h.observationCtx.Logger != nil {
-		return h.observationCtx.Logger.Scoped("scim.user")
-	}
-	return log.Scoped("scim.user")
-}
 
 // NewUserResourceHandler returns a new UserResourceHandler.
 func NewUserResourceHandler(ctx context.Context, observationCtx *observation.Context, db database.DB) *ResourceHandler {
@@ -202,7 +185,7 @@ func (u *UserSCIMService) Create(ctx context.Context, attributes scim.ResourceAt
 	// Make sure the username is unique, then create user with/without an external account ID
 	var user *types.User
 	err = u.db.WithTransact(ctx, func(tx database.DB) error {
-		uniqueUsername, err := getUniqueUsername(ctx, tx.Users(), extractStringAttribute(attributes, AttrUserName))
+		uniqueUsername, err := getUniqueUsername(ctx, tx.Users(), 0, extractStringAttribute(attributes, AttrUserName))
 		if err != nil {
 			return err
 		}

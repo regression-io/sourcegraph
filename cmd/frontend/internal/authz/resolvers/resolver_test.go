@@ -97,9 +97,10 @@ func TestResolver_SetRepositoryPermissionsForUsers(t *testing.T) {
 			},
 		},
 		gqlTests: func(db database.DB) []*graphqlbackend.Test {
-			return []*graphqlbackend.Test{{
-				Schema: mustParseGraphQLSchema(t, db),
-				Query: `
+			return []*graphqlbackend.Test{
+				{
+					Schema: mustParseGraphQLSchema(t, db),
+					Query: `
 							mutation {
 								setRepositoryPermissionsForUsers(
 									repository: "UmVwb3NpdG9yeTox",
@@ -111,14 +112,14 @@ func TestResolver_SetRepositoryPermissionsForUsers(t *testing.T) {
 								}
 							}
 						`,
-				ExpectedResult: `
+					ExpectedResult: `
 							{
 								"setRepositoryPermissionsForUsers": {
 									"alwaysNil": null
 								}
 							}
 						`,
-			},
+				},
 			}
 		},
 		expUserIDs: map[int32]struct{}{1: {}},
@@ -633,7 +634,6 @@ func TestResolver_SetRepositoryPermissionsForBitbucketProject(t *testing.T) {
 			assert.NoError(t, err)
 			require.NotNil(t, result)
 			require.Equal(t, &graphqlbackend.EmptyResponse{}, result)
-
 		})
 
 		t.Run("unrestricted set to false", func(t *testing.T) {
@@ -1110,7 +1110,6 @@ func TestResolver_AuthorizedUserRepositories(t *testing.T) {
 }
 
 func TestResolver_UsersWithPendingPermissions(t *testing.T) {
-
 	t.Run("authenticated as non-admin", func(t *testing.T) {
 		users := dbmocks.NewStrictMockUserStore()
 		users.GetByCurrentAuthUserFunc.SetDefaultReturn(&types.User{}, nil)
@@ -1202,6 +1201,7 @@ func TestResolver_AuthzProviderTypes(t *testing.T) {
 
 		ghProvider := github.NewProvider("https://github.com", github.ProviderOptions{GitHubURL: mustURL(t, "https://github.com")})
 		authz.SetProviders(false, []authz.Provider{ghProvider})
+		defer authz.SetProviders(true, nil)
 		result, err := (&Resolver{db: db}).AuthzProviderTypes(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"github"}, result)
@@ -2018,7 +2018,8 @@ func TestResolverPermissionsSyncJobs(t *testing.T) {
 		db := dbmocks.NewStrictMockDB()
 		db.UsersFunc.SetDefaultReturn(users)
 
-		r := &Resolver{db: db}
+		logger := logtest.NoOp(t)
+		r := &Resolver{logger: logger, db: db}
 
 		ctx := actor.WithActor(context.Background(), &actor.Actor{UID: 1})
 		userID := graphqlbackend.MarshalUserID(1)
@@ -2035,7 +2036,8 @@ func TestResolverPermissionsSyncJobs(t *testing.T) {
 		db := dbmocks.NewStrictMockDB()
 		db.UsersFunc.SetDefaultReturn(users)
 
-		r := &Resolver{db: db}
+		logger := logtest.NoOp(t)
+		r := &Resolver{logger: logger, db: db}
 
 		ctx := actor.WithActor(context.Background(), &actor.Actor{UID: 1})
 		userID := graphqlbackend.MarshalUserID(2)
@@ -2052,7 +2054,8 @@ func TestResolverPermissionsSyncJobs(t *testing.T) {
 		db := dbmocks.NewStrictMockDB()
 		db.UsersFunc.SetDefaultReturn(users)
 
-		r := &Resolver{db: db}
+		logger := logtest.NoOp(t)
+		r := &Resolver{logger: logger, db: db}
 
 		ctx := actor.WithActor(context.Background(), &actor.Actor{UID: 1})
 		userID := graphqlbackend.MarshalUserID(2)
@@ -2133,7 +2136,9 @@ func TestResolverPermissionsSyncJobs(t *testing.T) {
 	db.ReposFunc.SetDefaultReturn(repoStore)
 
 	// Creating a resolver and validating GraphQL schema.
-	r := &Resolver{db: db}
+	logger := logtest.NoOp(t)
+	r := &Resolver{logger: logger, db: db}
+
 	parsedSchema, err := graphqlbackend.NewSchemaWithAuthzResolver(db, r)
 	if err != nil {
 		t.Fatal(err)
@@ -2378,7 +2383,9 @@ func TestResolverPermissionsSyncJobsFiltering(t *testing.T) {
 	db.ReposFunc.SetDefaultReturn(repoStore)
 
 	// Creating a resolver and validating GraphQL schema.
-	r := &Resolver{db: db}
+	logger := logtest.NoOp(t)
+	r := &Resolver{logger: logger, db: db}
+
 	parsedSchema, err := graphqlbackend.NewSchemaWithAuthzResolver(db, r)
 	if err != nil {
 		t.Fatal(err)
@@ -2547,7 +2554,8 @@ func TestResolverPermissionsSyncJobsSearching(t *testing.T) {
 	db.ReposFunc.SetDefaultReturn(repoStore)
 
 	// Creating a resolver and validating GraphQL schema.
-	r := &Resolver{db: db}
+	logger := logtest.NoOp(t)
+	r := &Resolver{logger: logger, db: db}
 	parsedSchema, err := graphqlbackend.NewSchemaWithAuthzResolver(db, r)
 	if err != nil {
 		t.Fatal(err)

@@ -14,7 +14,8 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/database/dbtest"
 	"github.com/sourcegraph/sourcegraph/internal/licensing"
 	"github.com/sourcegraph/sourcegraph/internal/telemetry"
-	"github.com/sourcegraph/sourcegraph/internal/telemetry/teestore"
+	"github.com/sourcegraph/sourcegraph/internal/telemetry/telemetrystore"
+	"github.com/sourcegraph/sourcegraph/internal/telemetry/telemetrystore/teestore"
 	"github.com/sourcegraph/sourcegraph/internal/telemetry/telemetrytest"
 )
 
@@ -22,7 +23,7 @@ func TestRecorder(t *testing.T) {
 	store := telemetrytest.NewMockEventsStore()
 	recorder := telemetry.NewEventRecorder(store)
 
-	err := recorder.Record(context.Background(), "Feature", "Action", nil)
+	err := recorder.Record(context.Background(), "feature", "action", nil)
 	require.NoError(t, err)
 
 	// stored once
@@ -30,7 +31,7 @@ func TestRecorder(t *testing.T) {
 	// called with 1 event
 	require.Len(t, store.StoreEventsFunc.History()[0].Arg1, 1)
 	// stored event has 1 event
-	require.Equal(t, "Feature", store.StoreEventsFunc.History()[0].Arg1[0].Feature)
+	require.Equal(t, "feature", store.StoreEventsFunc.History()[0].Arg1[0].Feature)
 }
 
 func TestRecorderEndToEnd(t *testing.T) {
@@ -47,12 +48,12 @@ func TestRecorderEndToEnd(t *testing.T) {
 	exportStore.(database.MockExportModeSetterTelemetryEventsExportQueueStore).
 		SetMockExportMode(licensing.TelemetryEventsExportAll)
 
-	recorder := telemetry.NewEventRecorder(teestore.NewStore(exportStore, db.EventLogs()))
+	recorder := telemetry.NewEventRecorder(telemetrystore.New(exportStore, db.EventLogs()))
 
 	wantEvents := 3
 	t.Run("Record and BatchRecord", func(t *testing.T) {
 		assert.NoError(t, recorder.Record(ctx,
-			"Test", "Action1",
+			"test", "actionOne",
 			&telemetry.EventParameters{
 				Metadata: telemetry.EventMetadata{
 					"metadata": 1,
@@ -63,12 +64,12 @@ func TestRecorderEndToEnd(t *testing.T) {
 			}))
 		assert.NoError(t, recorder.BatchRecord(ctx,
 			telemetry.Event{
-				Feature: "Test",
-				Action:  "Action2",
+				Feature: "test",
+				Action:  "actionTwo",
 			},
 			telemetry.Event{
-				Feature: "Test",
-				Action:  "Action3",
+				Feature: "test",
+				Action:  "actionThree",
 			}))
 	})
 
@@ -86,7 +87,7 @@ func TestRecorderEndToEnd(t *testing.T) {
 
 	t.Run("record without v1", func(t *testing.T) {
 		ctx := teestore.WithoutV1(ctx)
-		assert.NoError(t, recorder.Record(ctx, "Test", "Action1", &telemetry.EventParameters{}))
+		assert.NoError(t, recorder.Record(ctx, "test", "actionOne", &telemetry.EventParameters{}))
 
 		telemetryEvents, err := db.TelemetryEventsExportQueue().ListForExport(ctx, 999)
 		require.NoError(t, err)

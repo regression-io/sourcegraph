@@ -3,6 +3,7 @@ package gitdomain
 import (
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"github.com/gobwas/glob"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/sourcegraph/sourcegraph/internal/fileutil"
 	proto "github.com/sourcegraph/sourcegraph/internal/gitserver/v1"
+	v1 "github.com/sourcegraph/sourcegraph/internal/gitserver/v1"
 
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/lazyregexp"
@@ -39,6 +42,7 @@ const (
 // (os.ModeDevice) beyond the Git "160000" commit mode bits. The choice of os.ModeDevice is
 // arbitrary.
 const ModeSubmodule = 0o160000 | os.ModeDevice
+const ModeSymlink = 0o20000
 
 // Submodule holds information about a Git submodule and is
 // returned in the FileInfo's Sys field by Stat/ReadDir calls.
@@ -166,16 +170,16 @@ func (c *Commit) ToProto() *proto.GitCommit {
 
 	return &proto.GitCommit{
 		Oid:     string(c.ID),
-		Message: string(c.Message),
+		Message: []byte(c.Message),
 		Parents: parents,
 		Author: &proto.GitSignature{
-			Name:  c.Author.Name,
-			Email: c.Author.Email,
+			Name:  []byte(c.Author.Name),
+			Email: []byte(c.Author.Email),
 			Date:  timestamppb.New(c.Author.Date),
 		},
 		Committer: &proto.GitSignature{
-			Name:  c.Committer.Name,
-			Email: c.Committer.Email,
+			Name:  []byte(c.Committer.Name),
+			Email: []byte(c.Committer.Email),
 			Date:  timestamppb.New(c.Committer.Date),
 		},
 	}
@@ -191,13 +195,17 @@ func CommitFromProto(p *proto.GitCommit) *Commit {
 		ID:      api.CommitID(p.GetOid()),
 		Message: Message(p.GetMessage()),
 		Author: Signature{
-			Name:  p.GetAuthor().GetName(),
-			Email: p.GetAuthor().GetEmail(),
+			// TODO@ggilmore: It's entirely possible that the "name" could include non-utf8 characters, as there is no such enforcement in the git cli. We should consider using []byte here.
+			Name: string(p.GetAuthor().GetName()),
+			// TODO@ggilmore: It's entirely possible that the "email" could include non-utf8 characters, as there is no such enforcement in the git cli. We should consider using []byte here.
+			Email: string(p.GetAuthor().GetEmail()),
 			Date:  p.GetAuthor().GetDate().AsTime(),
 		},
 		Committer: &Signature{
-			Name:  p.GetCommitter().GetName(),
-			Email: p.GetCommitter().GetEmail(),
+			// TODO@ggilmore: It's entirely possible that the "name" could include non-utf8 characters, as there is no such enforcement in the git cli. We should consider using []byte here.
+			Name: string(p.GetCommitter().GetName()),
+			// TODO@ggilmore: It's entirely possible that the "email" could include non-utf8 characters, as there is no such enforcement in the git cli. We should consider using []byte here.
+			Email: string(p.GetCommitter().GetEmail()),
 			Date:  p.GetCommitter().GetDate().AsTime(),
 		},
 		Parents: parents,
@@ -270,7 +278,7 @@ func HunkFromBlameProto(h *proto.BlameHunk) *Hunk {
 		Message:        h.GetMessage(),
 		Filename:       h.GetFilename(),
 		Author: Signature{
-			Name:  h.GetAuthor().GetName(),
+			Name:  string(h.GetAuthor().GetName()), // Note: This is not necessarily a valid UTF-8 string, as git does not enforce this.
 			Email: h.GetAuthor().GetEmail(),
 			Date:  h.GetAuthor().GetDate().AsTime(),
 		},
@@ -299,7 +307,7 @@ func (h *Hunk) ToProto() *proto.BlameHunk {
 		Message:        h.Message,
 		Filename:       h.Filename,
 		Author: &proto.BlameAuthor{
-			Name:  h.Author.Name,
+			Name:  []byte(h.Author.Name), // We can't guarantee this is valid UTF-8. So, we have to use []byte.
 			Email: h.Author.Email,
 			Date:  timestamppb.New(h.Author.Date),
 		},
@@ -308,7 +316,15 @@ func (h *Hunk) ToProto() *proto.BlameHunk {
 
 // Signature represents a commit signature
 type Signature struct {
-	Name  string    `json:"Name,omitempty"`
+	// Name is the name of the author or committer.
+	//
+	// Note: This is not necessarily a valid UTF-8 string, as git does not enforce
+	// this. It's up to the caller to check validity or sanitize the string as needed.
+	Name string `json:"Name,omitempty"`
+	// Email is the email of the author or committer.
+	//
+	// Note: This is not necessarily a valid UTF-8 string, as git does not enforce
+	// this. It's up to the caller to check validity or sanitize the string as needed.
 	Email string    `json:"Email,omitempty"`
 	Date  time.Time `json:"Date"`
 }
@@ -321,12 +337,26 @@ const (
 	RefTypeTag
 )
 
-// RefDescription describes a commit at the head of a branch or tag.
-type RefDescription struct {
-	Name            string
-	Type            RefType
-	IsDefaultBranch bool
-	CreatedDate     *time.Time
+func RefTypeFromProto(t proto.GitRef_RefType) RefType {
+	switch t {
+	case proto.GitRef_REF_TYPE_BRANCH:
+		return RefTypeBranch
+	case proto.GitRef_REF_TYPE_TAG:
+		return RefTypeTag
+	default:
+		return RefTypeUnknown
+	}
+}
+
+func (t RefType) ToProto() proto.GitRef_RefType {
+	switch t {
+	case RefTypeBranch:
+		return proto.GitRef_REF_TYPE_BRANCH
+	case RefTypeTag:
+		return proto.GitRef_REF_TYPE_TAG
+	default:
+		return proto.GitRef_REF_TYPE_UNSPECIFIED
+	}
 }
 
 // A ContributorCount is a contributor to a repository.
@@ -340,17 +370,77 @@ func (p *ContributorCount) String() string {
 	return fmt.Sprintf("%d %s <%s>", p.Count, p.Name, p.Email)
 }
 
-// A Tag is a VCS tag.
-type Tag struct {
-	Name         string `json:"Name,omitempty"`
-	api.CommitID `json:"CommitID,omitempty"`
-	CreatorDate  time.Time
+func ContributorCountFromProto(p *proto.ContributorCount) *ContributorCount {
+	if p == nil {
+		return nil
+	}
+	c := &ContributorCount{
+		Count: p.GetCount(),
+	}
+	if p.GetAuthor() != nil {
+		c.Name = string(p.GetAuthor().GetName())
+		c.Email = string(p.GetAuthor().GetEmail())
+	}
+	return c
+}
+
+func (c *ContributorCount) ToProto() *proto.ContributorCount {
+	if c == nil {
+		return nil
+	}
+	return &proto.ContributorCount{
+		Count: c.Count,
+		Author: &proto.GitSignature{
+			Name:  []byte(c.Name),
+			Email: []byte(c.Email),
+		},
+	}
 }
 
 // Ref describes a Git ref.
 type Ref struct {
-	Name     string // the full name of the ref (e.g., "refs/heads/mybranch")
+	// Name the full name of the ref (e.g., "refs/heads/mybranch").
+	Name string
+	// ShortName the abbreviated name of the ref, if it wouldn't be ambiguous (e.g., "mybranch").
+	ShortName string
+	// Type is the type of this reference.
+	Type RefType
+	// CommitID is the hash of the commit the reference is currently pointing at.
+	// For a head reference, this is the commit the head is currently pointing at.
+	// For a tag, this is the commit that the tag is attached to.
 	CommitID api.CommitID
+	// RefOID is the full object ID of the reference. For a head reference and
+	// a lightweight tag, this value is the same as CommitID. For annotated tags,
+	// it is the object ID of the tag.
+	RefOID api.CommitID
+	// CreatedDate is the date the ref was created or modified last.
+	CreatedDate time.Time
+	// IsHead indicates whether this is the head reference.
+	IsHead bool
+}
+
+func RefFromProto(r *proto.GitRef) Ref {
+	return Ref{
+		Name:        string(r.GetRefName()),
+		ShortName:   string(r.GetShortRefName()),
+		Type:        RefTypeFromProto(r.GetRefType()),
+		CommitID:    api.CommitID(r.GetTargetCommit()),
+		RefOID:      api.CommitID(r.GetRefOid()),
+		CreatedDate: r.GetCreatedAt().AsTime(),
+		IsHead:      r.GetIsHead(),
+	}
+}
+
+func (r *Ref) ToProto() *proto.GitRef {
+	return &proto.GitRef{
+		RefName:      []byte(r.Name),
+		ShortRefName: []byte(r.ShortName),
+		TargetCommit: string(r.CommitID),
+		RefOid:       string(r.RefOID),
+		CreatedAt:    timestamppb.New(r.CreatedDate),
+		RefType:      r.Type.ToProto(),
+		IsHead:       r.IsHead,
+	}
 }
 
 // BehindAhead is a set of behind/ahead counts.
@@ -359,12 +449,25 @@ type BehindAhead struct {
 	Ahead  uint32 `json:"Ahead,omitempty"`
 }
 
-// A Branch is a git branch.
-type Branch struct {
-	// Name is the name of this branch.
-	Name string `json:"Name,omitempty"`
-	// Head is the commit ID of this branch's head commit.
-	Head api.CommitID `json:"Head,omitempty"`
+func BehindAheadFromProto(p *proto.BehindAheadResponse) *BehindAhead {
+	if p == nil {
+		return nil
+	}
+
+	return &BehindAhead{
+		Behind: p.GetBehind(),
+		Ahead:  p.GetAhead(),
+	}
+}
+
+func (b *BehindAhead) ToProto() *proto.BehindAheadResponse {
+	if b == nil {
+		return nil
+	}
+	return &proto.BehindAheadResponse{
+		Behind: b.Behind,
+		Ahead:  b.Ahead,
+	}
 }
 
 // EnsureRefPrefix checks whether the ref is a full ref and contains the
@@ -482,3 +585,58 @@ func (gs RefGlobs) Match(ref string) bool {
 // Pathspec is a git term for a pattern that matches paths using glob-like syntax.
 // https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec
 type Pathspec string
+
+func FSFileInfoToProto(fi fs.FileInfo) *v1.FileInfo {
+	p := &proto.FileInfo{
+		Name: []byte(fi.Name()),
+		Size: fi.Size(),
+		Mode: uint32(fi.Mode()),
+	}
+	sys := fi.Sys()
+	switch s := sys.(type) {
+	case Submodule:
+		p.Submodule = &proto.GitSubmodule{
+			Url:       s.URL,
+			CommitSha: string(s.CommitID),
+			Path:      []byte(s.Path),
+		}
+	case ObjectInfo:
+		p.BlobOid = s.OID().String()
+	}
+	return p
+}
+
+func ProtoFileInfoToFS(fi *v1.FileInfo) fs.FileInfo {
+	var sys any
+	if sm := fi.GetSubmodule(); sm != nil {
+		sys = Submodule{
+			URL:      sm.GetUrl(),
+			Path:     string(sm.GetPath()),
+			CommitID: api.CommitID(sm.GetCommitSha()),
+		}
+	} else {
+		oid, _ := decodeOID(fi.GetBlobOid())
+		sys = objectInfo(oid)
+	}
+	return &fileutil.FileInfo{
+		Name_:    string(fi.GetName()),
+		Mode_:    fs.FileMode(fi.GetMode()),
+		Size_:    fi.GetSize(),
+		ModTime_: time.Time{}, // Not supported.
+		Sys_:     sys,
+	}
+}
+
+func decodeOID(sha string) (OID, error) {
+	oidBytes, err := hex.DecodeString(sha)
+	if err != nil {
+		return OID{}, err
+	}
+	var oid OID
+	copy(oid[:], oidBytes)
+	return oid, nil
+}
+
+type objectInfo OID
+
+func (oid objectInfo) OID() OID { return OID(oid) }

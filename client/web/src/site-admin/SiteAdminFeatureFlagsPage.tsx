@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo } from 'react'
 
 import { mdiChevronRight } from '@mdi/js'
 import classNames from 'classnames'
@@ -7,18 +7,20 @@ import { catchError, map, mergeMap } from 'rxjs/operators'
 
 import { asError, type ErrorLike, isErrorLike, pluralize } from '@sourcegraph/common'
 import { aggregateStreamingSearch, type ContentMatch, LATEST_VERSION } from '@sourcegraph/shared/src/search/stream'
+import { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
 import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
-import { Link, PageHeader, Container, Code, H3, Text, Icon, Tooltip, ButtonLink } from '@sourcegraph/wildcard'
+import { Link, PageHeader, Container, Code, H3, Text, Icon, Tooltip, ButtonLink, Alert } from '@sourcegraph/wildcard'
 
 import { FilteredConnection, type FilteredConnectionFilter } from '../components/FilteredConnection'
 import { PageTitle } from '../components/PageTitle'
+import { useFeatureFlag } from '../featureFlags/useFeatureFlag'
 import { type FeatureFlagFields, SearchPatternType } from '../graphql-operations'
 
 import { fetchFeatureFlags as defaultFetchFeatureFlags } from './backend'
 
 import styles from './SiteAdminFeatureFlagsPage.module.scss'
 
-interface SiteAdminFeatureFlagsPageProps extends TelemetryProps {
+interface SiteAdminFeatureFlagsPageProps extends TelemetryProps, TelemetryV2Props {
     fetchFeatureFlags?: typeof defaultFetchFeatureFlags
     productVersion?: string
 }
@@ -132,7 +134,7 @@ const filters: FilteredConnectionFilter[] = [
 
 export const SiteAdminFeatureFlagsPage: React.FunctionComponent<
     React.PropsWithChildren<SiteAdminFeatureFlagsPageProps>
-> = ({ fetchFeatureFlags = defaultFetchFeatureFlags, productVersion = window.context.version }) => {
+> = ({ fetchFeatureFlags = defaultFetchFeatureFlags, productVersion = window.context.version, telemetryRecorder }) => {
     // Try to parse out a git rev based on the product version, otherwise just fall back
     // to main.
     const productGitVersion = parseProductReference(productVersion)
@@ -188,6 +190,12 @@ export const SiteAdminFeatureFlagsPage: React.FunctionComponent<
         [featureFlagsOrErrorsObservable]
     )
 
+    const [isSourcegraphCloudManagedFeatureFlagsWarningShown] = useFeatureFlag(
+        'sourcegraph-cloud-managed-feature-flags-warning-shown'
+    )
+
+    useEffect(() => telemetryRecorder.recordEvent('admin.featureFlags', 'view'), [telemetryRecorder])
+
     return (
         <>
             <PageTitle title="Feature flags - Admin" />
@@ -213,6 +221,13 @@ export const SiteAdminFeatureFlagsPage: React.FunctionComponent<
                     </ButtonLink>
                 }
             />
+
+            {isSourcegraphCloudManagedFeatureFlagsWarningShown && (
+                <Alert variant="info">
+                    Feature flag settings are managed by Sourcegraph and will be overridden by updates. Contact support
+                    for help.
+                </Alert>
+            )}
 
             <Container>
                 <FilteredConnection<FeatureFlagAndReferences, {}>

@@ -7,6 +7,7 @@ go_library(
         "observe.go",
     ],
     importpath = "github.com/sourcegraph/sourcegraph/internal/completions/client",
+    tags = [TAG_CODY_CORE],
     visibility = ["//:__subpackages__"],
     deps = [
         "//internal/completions/client/anthropic",
@@ -14,6 +15,7 @@ go_library(
         "//internal/completions/client/azureopenai",
         "//internal/completions/client/codygateway",
         "//internal/completions/client/fireworks",
+        "//internal/completions/client/google",
         "//internal/completions/client/openai",
         "//internal/completions/tokenusage",
         "//internal/completions/types",

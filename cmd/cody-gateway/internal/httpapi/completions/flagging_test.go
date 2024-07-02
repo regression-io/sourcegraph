@@ -40,33 +40,37 @@ func TestMakeFlaggingConfig(t *testing.T) {
 
 func TestIsFlaggedRequest(t *testing.T) {
 	validPreamble := "You are cody-gateway."
+	flaggedModelNames := []string{"dangerous-llm-model"}
 
 	basicCfg := flaggingConfig{
 		PromptTokenFlaggingLimit:       18000,
 		PromptTokenBlockingLimit:       20000,
-		MaxTokensToSampleFlaggingLimit: 1000,
-		ResponseTokenBlockingLimit:     1000,
+		MaxTokensToSampleFlaggingLimit: 4000,
+		ResponseTokenBlockingLimit:     4000,
+		FlaggedModelNames:              flaggedModelNames,
 		RequestBlockingEnabled:         true,
 	}
 	cfgWithPreamble := flaggingConfig{
 		PromptTokenFlaggingLimit:       18000,
 		PromptTokenBlockingLimit:       20000,
-		MaxTokensToSampleFlaggingLimit: 1000,
-		ResponseTokenBlockingLimit:     1000,
+		MaxTokensToSampleFlaggingLimit: 4000,
+		ResponseTokenBlockingLimit:     4000,
 		RequestBlockingEnabled:         true,
+		FlaggedModelNames:              flaggedModelNames,
 		AllowedPromptPatterns:          []string{strings.ToLower(validPreamble)},
 	}
 
 	// Create a generic tokenizer. If provided to isFlaggedRequest, it will enable
 	// a few more checks.
-	tokenizer, err := tokenizer.NewTokenizer(tokenizer.AnthropicModel)
+	tokenizer, err := tokenizer.NewCL100kBaseTokenizer()
 	require.NoError(t, err)
 
 	// callIsFlaggedRequest just wraps the call to isFlaggedResult.
-	callIsFlaggedRequest := func(t *testing.T, prompt string, cfg flaggingConfig) (*flaggingResult, error) {
+	callIsFlaggedRequest := func(prompt string, cfg flaggingConfig) (*flaggingResult, error) {
 		return isFlaggedRequest(
 			tokenizer,
 			flaggingRequest{
+				ModelName:       "random-model-name",
 				FlattenedPrompt: prompt,
 				MaxTokens:       200,
 			},
@@ -75,7 +79,7 @@ func TestIsFlaggedRequest(t *testing.T) {
 
 	// Request is missing the preamble.
 	t.Run("MissingPreamble", func(t *testing.T) {
-		result, err := callIsFlaggedRequest(t, "prompt without known preamble", cfgWithPreamble)
+		result, err := callIsFlaggedRequest("prompt without known preamble", cfgWithPreamble)
 		require.NoError(t, err)
 
 		require.True(t, result.IsFlagged())
@@ -85,13 +89,13 @@ func TestIsFlaggedRequest(t *testing.T) {
 
 	// If the configuration doesn't include a preamble, the same request won't get flagged.
 	t.Run("PremableNotConfigured", func(t *testing.T) {
-		result, err := callIsFlaggedRequest(t, "some prompt without known premable", basicCfg)
+		result, err := callIsFlaggedRequest("some prompt without known premable", basicCfg)
 		require.NoError(t, err)
 		require.False(t, result.IsFlagged())
 	})
 
 	t.Run("WithPreamble", func(t *testing.T) {
-		result, err := callIsFlaggedRequest(t, "yadda yadda"+validPreamble+"yadda yadda", cfgWithPreamble)
+		result, err := callIsFlaggedRequest("yadda yadda"+validPreamble+"yadda yadda", cfgWithPreamble)
 		require.NoError(t, err)
 		require.False(t, result.IsFlagged())
 	})
@@ -118,7 +122,6 @@ func TestIsFlaggedRequest(t *testing.T) {
 		cfgWithBadPhrase := cfgWithPreamble
 		cfgWithBadPhrase.BlockedPromptPatterns = []string{"bad phrase"}
 		result, err := callIsFlaggedRequest(
-			t,
 			"never going to give you up... bad phrase never going to... ",
 			cfgWithBadPhrase)
 		require.NoError(t, err)
@@ -127,17 +130,16 @@ func TestIsFlaggedRequest(t *testing.T) {
 		assert.Contains(t, result.reasons, "unknown_prompt")
 	})
 
-	// If the prompt is NOT flagged, then we do not perform the "blocking due to bad phrase" check.
-	// In other words, a valid prompt with a bad phrase is allowed through.
+	// If the prompt contains bad phrases, the request is blocked immediately, and it is also marked as flagged (for future inspection).
 	t.Run("bad phrase only", func(t *testing.T) {
 		cfgWithBadPhrase := cfgWithPreamble
 		cfgWithBadPhrase.BlockedPromptPatterns = []string{"bad phrase"}
 		result, err := callIsFlaggedRequest(
-			t,
 			validPreamble+" ... bad phrase ...",
 			cfgWithBadPhrase)
 		require.NoError(t, err)
-		assert.False(t, result.IsFlagged())
+		assert.True(t, result.IsFlagged())
+		assert.True(t, result.shouldBlock)
 	})
 
 	t.Run("TokenCountChecks", func(t *testing.T) {
@@ -174,7 +176,7 @@ func TestIsFlaggedRequest(t *testing.T) {
 
 		t.Run("BelowFlaggingLimit", func(t *testing.T) {
 			shoterPrompt := string(prompt[:len(prompt)-8])
-			result, err := callIsFlaggedRequest(t, shoterPrompt, tokenCountConfig)
+			result, err := callIsFlaggedRequest(shoterPrompt, tokenCountConfig)
 			require.NoError(t, err)
 			assert.False(t, result.IsFlagged())
 			assert.Nil(t, result)
@@ -182,7 +184,7 @@ func TestIsFlaggedRequest(t *testing.T) {
 
 		t.Run("AboveFlaggingLimitBelowBlockLimit", func(t *testing.T) {
 			longerPrompt := prompt + " qed" // NB. Must be fewer than XX tokens, as to not be blocked.
-			result, err := callIsFlaggedRequest(t, longerPrompt, tokenCountConfig)
+			result, err := callIsFlaggedRequest(longerPrompt, tokenCountConfig)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.IsFlagged())
@@ -195,13 +197,63 @@ func TestIsFlaggedRequest(t *testing.T) {
 			// Create an even longer prompt, more than XX tokens in length to
 			// exceed the blocking limit.
 			longerPrompt := prompt + " qed. Along with additional information, which I intend to use in order to..."
-			result, err := callIsFlaggedRequest(t, longerPrompt, tokenCountConfig)
+			result, err := callIsFlaggedRequest(longerPrompt, tokenCountConfig)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.IsFlagged())
 			assert.True(t, result.shouldBlock)
 			assert.Contains(t, result.reasons, "high_prompt_token_count")
 			assert.Greater(t, result.promptTokenCount, tokenCountConfig.PromptTokenBlockingLimit)
+		})
+	})
+
+	t.Run("ModelNameFlagging", func(t *testing.T) {
+		t.Run("NotSet", func(t *testing.T) {
+			result, err := isFlaggedRequest(
+				tokenizer,
+				flaggingRequest{
+					ModelName:       "", // Test that this is OK.
+					FlattenedPrompt: validPreamble + "legit request",
+					MaxTokens:       200,
+				},
+				cfgWithPreamble)
+
+			require.NoError(t, err)
+			require.False(t, result.IsFlagged())
+		})
+
+		t.Run("NotConfigured", func(t *testing.T) {
+			// If no models were listed specified in the config, should work.
+			cfgWithoutModelsList := cfgWithPreamble // copy
+			cfgWithoutModelsList.FlaggedModelNames = nil
+
+			result, err := isFlaggedRequest(
+				tokenizer,
+				flaggingRequest{
+					ModelName:       "arbitrary-model-name",
+					FlattenedPrompt: validPreamble + "legit request",
+					MaxTokens:       200,
+				},
+				cfgWithoutModelsList)
+
+			require.NoError(t, err)
+			require.False(t, result.IsFlagged())
+		})
+
+		t.Run("FlaggedModel", func(t *testing.T) {
+			result, err := isFlaggedRequest(
+				tokenizer,
+				flaggingRequest{
+					ModelName:       flaggedModelNames[0],
+					FlattenedPrompt: validPreamble + "legit request",
+					MaxTokens:       200,
+				},
+				cfgWithPreamble)
+
+			require.NoError(t, err)
+			require.True(t, result.IsFlagged())
+			require.Equal(t, 1, len(result.reasons))
+			assert.Equal(t, "model_used", result.reasons[0])
 		})
 	})
 }

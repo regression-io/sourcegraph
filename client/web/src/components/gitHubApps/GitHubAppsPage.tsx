@@ -6,10 +6,10 @@ import { useLocation } from 'react-router-dom'
 
 import { useQuery } from '@sourcegraph/http-client'
 import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 import { ButtonLink, Container, ErrorAlert, Icon, Link, LoadingSpinner, PageHeader } from '@sourcegraph/wildcard'
 
 import { type GitHubAppsResult, type GitHubAppsVariables, GitHubAppDomain } from '../../graphql-operations'
-import { eventLogger } from '../../tracking/eventLogger'
 import {
     ConnectionContainer,
     ConnectionLoading,
@@ -38,7 +38,7 @@ export const GitHubAppsPage: React.FC<Props> = ({ batchChangesEnabled, telemetry
     const gitHubApps = useMemo(() => data?.gitHubApps?.nodes ?? [], [data])
 
     useEffect(() => {
-        eventLogger.logPageView('SiteAdminGitHubApps')
+        EVENT_LOGGER.logPageView('SiteAdminGitHubApps')
         telemetryRecorder.recordEvent('admin.GitHubApps', 'view')
     }, [telemetryRecorder])
 
@@ -64,7 +64,7 @@ export const GitHubAppsPage: React.FC<Props> = ({ batchChangesEnabled, telemetry
                 description={
                     <>
                         Create and connect a GitHub App to better manage GitHub code host connections.{' '}
-                        <Link to="/help/admin/external_service/github#using-a-github-app" target="_blank">
+                        <Link to="/help/admin/code_hosts/github#using-a-github-app" target="_blank">
                             See how GitHub App configuration works.
                         </Link>
                         {batchChangesEnabled && (

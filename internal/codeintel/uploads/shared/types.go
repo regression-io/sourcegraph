@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/core"
 	"github.com/sourcegraph/sourcegraph/internal/executor"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
@@ -98,6 +101,16 @@ type CompletedUpload struct {
 	Indexer           string     `json:"indexer"`
 	IndexerVersion    string     `json:"indexerVersion"`
 	AssociatedIndexID *int       `json:"associatedIndex"`
+}
+
+var _ core.UploadLike = CompletedUpload{}
+
+func (u CompletedUpload) GetID() int {
+	return u.ID
+}
+
+func (u CompletedUpload) GetRoot() string {
+	return u.Root
 }
 
 func (u *CompletedUpload) ConvertToUpload() Upload {
@@ -339,3 +352,50 @@ type UploadsWithRepositoryNamespace struct {
 	Indexer string
 	Uploads []Upload
 }
+
+type UploadMatchingOptions struct {
+	RepositoryID int
+	Commit       string
+	Path         core.RepoRelPath
+	// RootToPathMatching describes how the root for which a SCIP index was uploaded
+	// should be matched to the provided Path for a file or directory
+	//
+	// Generally, this value should be RootMustEnclosePath for finding information
+	// for a specific file, and it should be RootEnclosesPathOrPathEnclosesRoot
+	// if recursively aggregating data across indexes for a given directory.
+	RootToPathMatching
+	// Indexer matches the ToolInfo.name field in a SCIP index.
+	// https://github.com/sourcegraph/scip/blob/798e55b1746f054cdd295b3de8f78d073612690f/scip.proto#L63-L65
+	//
+	// Indexer must be shared.SyntacticIndexer for syntactic indexes to be considered.
+	//
+	// If Indexer is empty, then all precise indexes will be considered.
+	Indexer string
+}
+
+func (u *UploadMatchingOptions) Attrs() []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.Int("repositoryID", u.RepositoryID),
+		attribute.String("commit", u.Commit),
+		attribute.String("path", u.Path.RawValue()),
+		attribute.String("rootToPathMatching", string(u.RootToPathMatching)),
+		attribute.String("indexer", u.Indexer),
+	}
+}
+
+type RootToPathMatching string
+
+const (
+	// RootMustEnclosePath has the following behavior:
+	// root = a/b, path = a/b -> Match
+	// root = a/b, path = a/b/c -> Match
+	// root = a/b, path = a -> No match
+	// root = a/b, path = a/d -> No match
+	RootMustEnclosePath RootToPathMatching = "RootMustEnclosePath"
+	// RootEnclosesPathOrPathEnclosesRoot has the following behavior:
+	// root = a/b, path = a/b -> Match
+	// root = a/b, path = a/b/c -> Match
+	// root = a/b, path = a -> Match
+	// root = a/b, path = a/d -> No match
+	RootEnclosesPathOrPathEnclosesRoot RootToPathMatching = "RootEnclosesPathOrPathEnclosesRoot"
+)

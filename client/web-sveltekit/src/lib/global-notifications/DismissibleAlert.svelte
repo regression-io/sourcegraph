@@ -10,10 +10,15 @@
     function storageKeyForPartial(partialStorageKey: string): string {
         return `DismissibleAlert/${partialStorageKey}/dismissed`
     }
+
+    export function clearDismissedAlertsState_TEST_ONLY(...partialStorageKeys: string[]): void {
+        for (const partialStorageKey of partialStorageKeys) {
+            localStorage.removeItem(storageKeyForPartial(partialStorageKey))
+        }
+    }
 </script>
 
 <script lang="ts">
-    import { mdiClose } from '@mdi/js'
     import Icon from '$lib/Icon.svelte'
     import { Alert, Button } from '$lib/wildcard'
 
@@ -35,17 +40,19 @@
 
 {#if !dismissed}
     <Alert {variant} size="slim">
-        <div class="content">
-            <slot />
-        </div>
-
-        {#if partialStorageKey}
-            <div class="button-wrapper">
-                <Button variant="icon" aria-label="Dismiss alert" on:click={handleDismissClick}>
-                    <Icon aria-hidden={true} svgPath={mdiClose} />
-                </Button>
+        <div class="content-wrapper">
+            <div class="content">
+                <slot />
             </div>
-        {/if}
+
+            {#if partialStorageKey}
+                <div class="button-wrapper">
+                    <Button variant="icon" aria-label="Dismiss alert" on:click={handleDismissClick}>
+                        <Icon aria-hidden inline icon={ILucideX} />
+                    </Button>
+                </div>
+            {/if}
+        </div>
     </Alert>
 {/if}
 
@@ -54,6 +61,12 @@
         display: flex;
         flex: 1 1 auto;
         line-height: (20/14);
+    }
+
+    .content-wrapper {
+        display: flex;
+        align-items: center;
+        overflow: hidden;
     }
 
     .button-wrapper {

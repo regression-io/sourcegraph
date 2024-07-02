@@ -6,7 +6,6 @@
 
     import { EditorSelection, EditorState, Prec, type Extension } from '@codemirror/state'
     import { EditorView } from '@codemirror/view'
-    import { mdiCodeBrackets, mdiFormatLetterCase, mdiRegex } from '@mdi/js'
 
     import { goto, invalidate } from '$app/navigation'
     import {
@@ -87,6 +86,7 @@
             },
             '.cm-scroller': {
                 overflowX: 'hidden',
+                lineHeight: '1.6',
             },
             '.cm-content': {
                 paddingLeft: '0.25rem',
@@ -112,10 +112,13 @@
 </script>
 
 <script lang="ts">
-    import { mdiClockOutline } from '@mdi/js'
+    import { registerHotkey } from '$lib/Hotkey'
 
-    export let queryState: QueryStateStore
     export let autoFocus = false
+    export let size: 'normal' | 'compat' = 'normal'
+    export let queryState: QueryStateStore
+    export let onSubmit: (state: QueryState) => void = () => {}
+    export let extension: Extension = []
 
     export function focus() {
         input?.focus()
@@ -151,6 +154,16 @@
         },
     })
 
+    registerHotkey({
+        keys: { key: '/' },
+        handler: () => {
+            // If the search input doesn't have focus, focus it
+            // and disallow `/` symbol populate the input value
+            focus()
+            return false
+        },
+    })
+
     $: regularExpressionEnabled = $queryState.patternType === SearchPatternType.regexp
     $: structuralEnabled = $queryState.patternType === SearchPatternType.structural
     $: suggestionsExtension = suggestions({
@@ -164,6 +177,7 @@
     })
 
     $: extension = [
+        extension,
         onModeChange((_view, newMode) => (mode = newMode ?? '')),
         hasInteractedExtension,
         suggestionsExtension,
@@ -179,16 +193,23 @@
     }
 
     async function submitQuery(state: QueryState): Promise<void> {
+        const url = getQueryURL(state)
         // This ensures that the same query can be resubmitted from the search input. Without
         // this, SvelteKit will not re-run the loader because the URL hasn't changed.
-        await invalidate(`query:${state.query}--${state.caseSensitive}`)
-        void goto(getQueryURL(state))
+        await invalidate(`search:${url}`)
+        void goto(url)
+
+        // Reset interaction state since after success submit we should hide
+        // suggestions UI but still keep focus on input, after user interacts with
+        // search input again we show suggestion panel
+        userHasInteracted = false
     }
 
     async function handleSubmit(event: Event) {
         event.preventDefault()
         if (!mode) {
             // Only submit query if you are not in history mode
+            onSubmit($queryState)
             void submitQuery($queryState)
         }
     }
@@ -204,23 +225,27 @@
         if (editor) {
             setMode(editor, currentMode => (currentMode === 'History' ? null : 'History'))
             editor.focus()
+            // This ensures that history suggestions are shown after the button was pressed,
+            // before the user has interacted with the input in any other way.
+            userHasInteracted = true
         }
     }
 </script>
 
 <form
-    bind:clientHeight={suggestionsPaddingTop}
-    class="search-box"
-    action="/search"
     method="get"
+    action="/search"
+    class="search-box"
+    class:compat={size === 'compat'}
     on:submit={handleSubmit}
+    bind:clientHeight={suggestionsPaddingTop}
 >
     <input class="hidden" value={$queryState.query} name="q" />
     <div class="focus-container" class:userHasInteracted>
         <div class="mode-switcher" class:active={!!mode}>
             <Tooltip tooltip="Recent searches">
                 <button class="icon" type="button" on:click={toggleMode}>
-                    <Icon svgPath={mdiClockOutline} inline />
+                    <Icon icon={ILucideHistory} inline aria-hidden />
                     {#if mode}
                         <span>{mode}:</span>
                     {/if}
@@ -247,7 +272,7 @@
                     class:active={$queryState.caseSensitive}
                     on:click={() => queryState.setCaseSensitive(caseSensitive => !caseSensitive)}
                 >
-                    <Icon svgPath={mdiFormatLetterCase} inline />
+                    <Icon icon={ILucideCaseSensitive} inline aria-hidden />
                 </button>
             </Tooltip>
             <Tooltip tooltip="{regularExpressionEnabled ? 'Disable' : 'Enable'} regular expression">
@@ -257,7 +282,7 @@
                     class:active={regularExpressionEnabled}
                     on:click={() => setOrUnsetPatternType(SearchPatternType.regexp)}
                 >
-                    <Icon svgPath={mdiRegex} inline />
+                    <Icon icon={ILucideRegex} inline aria-hidden />
                 </button>
             </Tooltip>
             {#if structuralEnabled}
@@ -268,7 +293,7 @@
                         class:active={structuralEnabled}
                         on:click={() => setOrUnsetPatternType(SearchPatternType.structural)}
                     >
-                        <Icon svgPath={mdiCodeBrackets} inline />
+                        <Icon icon={ILucideBrackets} inline aria-hidden />
                     </button>
                 </Tooltip>
             {/if}
@@ -280,8 +305,6 @@
 </form>
 
 <style lang="scss">
-    @use '$lib/breakpoints';
-
     form {
         isolation: isolate;
         width: 100%;
@@ -292,6 +315,12 @@
             .userHasInteracted + .suggestions {
                 display: block;
             }
+        }
+
+        &.compat {
+            padding: 0.25rem;
+            margin: -0.25rem;
+            width: calc(100% + 0.5rem);
         }
     }
 
@@ -347,6 +376,8 @@
     }
 
     button.toggle {
+        --icon-color: currentColor;
+
         width: 1.5rem;
         height: 1.5rem;
         cursor: pointer;
@@ -384,6 +415,8 @@
         --color: var(--text-muted);
 
         button {
+            --icon-color: currentColor;
+
             padding: 0.0625rem 0.125rem;
             color: var(--color);
             border-radius: var(--border-radius);

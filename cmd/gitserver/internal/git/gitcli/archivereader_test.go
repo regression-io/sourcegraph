@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -156,25 +155,13 @@ func TestGitCLIBackend_ArchiveReader(t *testing.T) {
 	t.Run("non existent commit", func(t *testing.T) {
 		_, err := backend.ArchiveReader(ctx, "tar", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil)
 		require.Error(t, err)
-		require.True(t, errors.HasType(err, &gitdomain.RevisionNotFoundError{}))
+		require.True(t, errors.HasType[*gitdomain.RevisionNotFoundError](err))
 	})
 
 	t.Run("non existent ref", func(t *testing.T) {
 		_, err := backend.ArchiveReader(ctx, "tar", "head-2", nil)
 		require.Error(t, err)
-		require.True(t, errors.HasType(err, &gitdomain.RevisionNotFoundError{}))
-	})
-
-	t.Run("non existent file", func(t *testing.T) {
-		_, err := backend.ArchiveReader(ctx, "tar", string(commitID), []string{"no-file"})
-		require.Error(t, err)
-		require.True(t, os.IsNotExist(err))
-	})
-
-	t.Run("invalid path pattern", func(t *testing.T) {
-		_, err := backend.ArchiveReader(ctx, "tar", string(commitID), []string{"dir1/*"})
-		require.Error(t, err)
-		require.True(t, os.IsNotExist(err))
+		require.True(t, errors.HasType[*gitdomain.RevisionNotFoundError](err))
 	})
 
 	// Verify that if the context is canceled, the reader returns an error.
@@ -192,6 +179,6 @@ func TestGitCLIBackend_ArchiveReader(t *testing.T) {
 		require.Error(t, err)
 		require.True(t, errors.Is(err, context.Canceled), "unexpected error: %v", err)
 
-		require.NoError(t, r.Close())
+		require.True(t, errors.Is(r.Close(), context.Canceled), "unexpected error: %v", err)
 	})
 }

@@ -4,18 +4,19 @@ import { useParams } from 'react-router-dom'
 import { concat, of, Subject, Subscription } from 'rxjs'
 import { catchError, delay, distinctUntilChanged, map, mergeMap, startWith, switchMap, tap } from 'rxjs/operators'
 
-import { asError, type ErrorLike, isErrorLike } from '@sourcegraph/common'
+import { asError, isErrorLike, type ErrorLike } from '@sourcegraph/common'
+import { type TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 import { Alert, LoadingSpinner } from '@sourcegraph/wildcard'
 
 import type { AuthenticatedUser } from '../auth'
 import type { SavedSearchFields } from '../graphql-operations'
 import type { NamespaceProps } from '../namespaces'
 import { fetchSavedSearch, updateSavedSearch } from '../search/backend'
-import { eventLogger } from '../tracking/eventLogger'
 
-import { type SavedQueryFields, SavedSearchForm } from './SavedSearchForm'
+import { SavedSearchForm, type SavedQueryFields } from './SavedSearchForm'
 
-interface Props extends NamespaceProps {
+interface Props extends NamespaceProps, TelemetryV2Props {
     authenticatedUser: AuthenticatedUser | null
     isSourcegraphDotCom: boolean
     searchId: string
@@ -80,7 +81,13 @@ class InnerSavedSearchUpdateForm extends React.Component<Props, State> {
                                 this.props.namespace.__typename === 'Org' ? this.props.namespace.id : null
                             ).pipe(
                                 map(() => null),
-                                tap(() => eventLogger.log('SavedSearchUpdated')),
+                                tap(() => EVENT_LOGGER.log('SavedSearchUpdated')),
+                                tap(() =>
+                                    this.props.telemetryRecorder.recordEvent(
+                                        `${this.props.namespace.__typename.toLowerCase()}.savedSearch`,
+                                        'update'
+                                    )
+                                ),
                                 mergeMap(() =>
                                     concat(
                                         // Flash "updated" text
@@ -99,7 +106,11 @@ class InnerSavedSearchUpdateForm extends React.Component<Props, State> {
 
         this.componentUpdates.next(this.props)
 
-        eventLogger.logViewEvent('UpdateSavedSearchPage')
+        EVENT_LOGGER.logViewEvent('UpdateSavedSearchPage')
+        this.props.telemetryRecorder.recordEvent(
+            `${this.props.namespace.__typename.toLowerCase()}.savedSearch.update`,
+            'view'
+        )
     }
 
     public render(): JSX.Element | null {

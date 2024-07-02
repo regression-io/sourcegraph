@@ -175,6 +175,15 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "scipBasedAPIs": {
+          "description": "Enable usage of new CodeGraph and usagesForSymbol APIs",
+          "type": "boolean",
+          "default": true,
+          "_comment": "Keep default 'true' above in sync with NOTE(id: scip-based-apis-feature-flag)",
+          "!go": {
+            "pointer": true
+          }
+        },
         "codyContextIgnore": {
           "description": "Enabled filtering of remote Cody context based on repositories ./cody/ignore file",
           "type": "boolean",
@@ -601,6 +610,11 @@
               "default": "useFileContents"
             }
           }
+        },
+        "codeintelSyntacticIndexing.enabled": {
+          "description": "When enabled, syntactic indexing jobs will be scheduled for all enabled repos",
+          "type": "boolean",
+          "default": false
         }
       },
       "examples": [
@@ -916,7 +930,7 @@
     "gitLongCommandTimeout": {
       "description": "Maximum number of seconds that a long Git command (e.g. clone or remote update) is allowed to execute. The default is 3600 seconds, or 1 hour.",
       "type": "integer",
-      "default": 3600,
+      "default": 7200,
       "group": "External services"
     },
     "gitMaxConcurrentClones": {
@@ -934,16 +948,30 @@
       "default": -1,
       "group": "External services"
     },
+    "codeMonitors": {
+      "description": "Configuration options for code monitors",
+      "type": "object",
+      "properties": {
+        "pollInterval": {
+          "description": "The interval at which a monitor checks for new changes. Increase to reduce average load.",
+          "type": "string",
+          "default": "5m"
+        },
+        "concurrency": {
+          "description": "The number of code monitor jobs allowed to run concurrenctly. Decrease to reduce peak load.",
+          "type": "integer",
+          "default": 4
+        }
+      }
+    },
     "syntaxHighlighting": {
       "title": "SyntaxHighlighting",
       "description": "Syntax highlighting configuration",
       "type": "object",
-      "required": ["engine", "languages"],
       "properties": {
         "engine": {
           "title": "SyntaxHighlightingEngine",
           "type": "object",
-          "required": ["default"],
           "properties": {
             "default": {
               "description": "The default syntax highlighting engine to use",
@@ -963,7 +991,6 @@
         "languages": {
           "title": "SyntaxHighlightingLanguage",
           "type": "object",
-          "required": ["extensions", "patterns"],
           "properties": {
             "extensions": {
               "description": "Map of extension to language",
@@ -2234,6 +2261,40 @@
               "type": "string"
             }
           }
+        },
+        "codyProConfig": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stripePublishableKey": {
+              "type": "string",
+              "default": null,
+              "description": "Stripe Publishable Key for use in Stripe Checkout, Stripe Elements. This is not considered a secret.",
+              "examples": ["pk_test_...", "pk_live_..."]
+            },
+            "samsBackendOrigin": {
+              "type": "string",
+              "default": "",
+              "description": "Origin of the SAMS backend. (Must match the SAMS OIDC registration in auth.providers.)",
+              "examples": ["https://accounts.sourcegraph.com"]
+            },
+            "sscBackendOrigin": {
+              "type": "string",
+              "default": "",
+              "description": "Origin of the Self-serve Cody backend.",
+              "examples": ["https://accounts.sourcegraph.com"]
+            },
+            "sscBaseUrl": {
+              "type": "string",
+              "default": "https://accounts.sourcegraph.com/cody",
+              "description": "The base URL of the Self-Serve Cody site."
+            },
+            "useEmbeddedUI": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether Cody Pro UI is served from sourcegraph.com. If false, users are directed to https://accounts.sourcegraph.com/cody to manage their Cody Pro subscription."
+            }
+          }
         }
       },
       "group": "Sourcegraph.com"
@@ -2570,6 +2631,31 @@
       },
       "group": "Cody"
     },
+    "cody.contextFilters": {
+      "description": "Rules defining the repositories that will never be shared by Cody with third-party LLM providers.",
+      "type": "object",
+      "properties": {
+        "include": {
+          "description": "List of rules specifying repositories that Cody may include as context in requests to third-party LLMs. If defined, only repositories matching these rules will be considered for sharing. If not defined, all repositories may be shared.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CodyContextFilterItem"
+          },
+          "minItems": 1
+        },
+        "exclude": {
+          "description": "List of rules specifying repositories that Cody should excluded from context in requests to third-party LLMs. These rules are applied only to repositories matching the include rules.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CodyContextFilterItem"
+          },
+          "minItems": 1
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": false,
+      "group": "Cody"
+    },
     "cody.permissions": {
       "description": "Whether to enable Cody role-based access controls. Only respected if cody.restrictUsersFeatureFlag is not set. See https://sourcegraph.com/docs/admin/access_control",
       "type": "boolean",
@@ -2580,7 +2666,7 @@
       "group": "Cody"
     },
     "cody.restrictUsersFeatureFlag": {
-      "description": "DEPRECATED; see cody.permissions instead. PRIOR DESCRIPTION: Cody to only be enabled for users that have a feature flag labeled \"cody\" set to true. You must create a feature flag with this ID after enabling this setting: https://sourcegraph.com/docs/dev/how-to/use_feature_flags#create-a-feature-flag. This setting only has an effect if cody.enabled is true.",
+      "description": "DEPRECATED; see cody.permissions instead. PRIOR DESCRIPTION: Cody to only be enabled for users that have a feature flag labeled \"cody\" set to true. You must create a feature flag with this ID after enabling this setting: https://docs-legacy.sourcegraph.com/dev/how-to/use_feature_flags#create-a-feature-flag. This setting only has an effect if cody.enabled is true.",
       "type": "boolean",
       "default": false,
       "!go": {
@@ -2737,116 +2823,6 @@
             "pointer": true
           },
           "default": true
-        },
-        "qdrant": {
-          "description": "Overrides for the default qdrant config. These should generally not be modified without direction from the Sourcegraph support team.",
-          "type": "object",
-          "$comment": "Skipped fields from HnswConfigDiff: MaxIndexingThreads",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "default": false
-            },
-            "hnsw": {
-              "description": "Overrides for the HNSW index config.",
-              "type": "object",
-              "properties": {
-                "m": {
-                  "description": "Number of edges per node in the index graph. Larger the value - more accurate the search, more space required.",
-                  "type": "integer",
-                  "minimum": 0,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 8
-                },
-                "efConstruct": {
-                  "description": "Number of neighbours to consider during the index building. Larger the value, more accurate the search, more time required to build the index.",
-                  "type": "integer",
-                  "minimum": 0,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 100
-                },
-                "fullScanThreshold": {
-                  "description": "Minimal size (in KiloBytes) of vectors for additional payload-based indexing.",
-                  "type": "integer",
-                  "minimum": 0,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 1000
-                },
-                "onDisk": {
-                  "description": "Store HNSW index on disk.",
-                  "type": "boolean",
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": true
-                },
-                "payloadM": {
-                  "description": "Number of edges per node in the index graph. Larger the value, more accurate the search, more space required.",
-                  "type": "integer",
-                  "minimum": 0,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 8
-                }
-              }
-            },
-            "quantization": {
-              "description": "Overrides for quantization config.",
-              "type": "object",
-              "$comment": "Skipped fields from ScalarQuantization: AlwaysRam",
-              "properties": {
-                "enabled": {
-                  "description": "Whether to enable int8 scalar quantization",
-                  "type": "boolean",
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": true
-                },
-                "quantile": {
-                  "description": "Any values that lie outside the quantile range will be truncated",
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 1,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 0.98
-                }
-              }
-            },
-            "optimizers": {
-              "type": "object",
-              "$comment": "Skipped fields from OptimizersConfigDiff: DeletedThreshold, VacuumMinVectorNumber, DefaultSegmentNumber, MaxSegmentSize, FlushIntervalSec, MaxOptimizationThreads",
-              "properties": {
-                "indexingThreshold": {
-                  "description": "Maximum size (in kilobytes) of vectors allowed for plain index, exceeding this threshold will enable vector indexing. Set to 0 to disable indexing",
-                  "type": "integer",
-                  "minimum": 0,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 0
-                },
-                "memmapThreshold": {
-                  "description": "Maximum size (in kilobytes) of vectors to store in-memory per segment.",
-                  "type": "integer",
-                  "minimum": 0,
-                  "!go": {
-                    "pointer": true
-                  },
-                  "default": 100
-                }
-              }
-            }
-          }
         }
       },
       "examples": [
@@ -2876,19 +2852,64 @@
           "description": "DEPRECATED. Use chatModel instead.",
           "type": "string"
         },
+        "user": {
+          "description": "The user field for OpenAI config for both AzureOpenAI and OpenAI",
+          "type": "string"
+        },
+        "azureChatModel": {
+          "description": "Optional: Specify the Azure OpenAI model name for chat completions. This is only needed when you want to count tokens associated with your azure model",
+          "type": "string",
+          "enum": [
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-instruct",
+            "gpt-3.5-turbo-0301",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-16k-0613",
+            "gpt-4-0314",
+            "gpt-4-32k-0314",
+            "gpt-4-0613",
+            "gpt-4-32k-0613",
+            "gpt-4o",
+            "gpt-4"
+          ]
+        },
+        "azureCompletionModel": {
+          "description": "Optional: Specify the Azure OpenAI model name for chat completions. This is only needed when you want to count tokens associated with your azure model",
+          "type": "string",
+          "enum": [
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-instruct",
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-0301",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-16k-0613",
+            "gpt-4-0314",
+            "gpt-4-32k-0314",
+            "gpt-4-0613",
+            "gpt-4-32k-0613",
+            "gpt-4o",
+            "gpt-4"
+          ]
+        },
         "fastChatModel": {
-          "description": "The model used for fast chat completions. \n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommed using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
+          "description": "The model used for fast chat completions. \n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommend using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
           "type": "string",
           "not": {
             "enum": ["claude-2", "claude-instant-1"]
           }
+        },
+        "azureUseDeprecatedCompletionsAPIForOldModels": {
+          "description": "Enables the use of the older completions API for select Azure OpenAI models.",
+          "type": "boolean",
+          "default": false
         },
         "fastChatModelMaxTokens": {
           "description": "The maximum number of tokens to use as client when talking to fastChatModel. If not set, clients need to set their own limit.",
           "type": "integer"
         },
         "chatModel": {
-          "description": "The model used for chat completions. If using the default provider 'sourcegraph', a reasonable default model will be set.\n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommed using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
+          "description": "The model used for chat completions. If using the default provider 'sourcegraph', a reasonable default model will be set.\n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommend using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
           "type": "string",
           "not": {
             "enum": ["claude-2", "claude-instant-1"]
@@ -2896,11 +2917,17 @@
           "errorMessage": "The substring 'cumber' is not allowed because it is a bad idea and may lead to unexpected issues."
         },
         "chatModelMaxTokens": {
-          "description": "The maximum number of tokens to use as client when talking to chatModel. If not set, clients need to set their own limit.",
+          "description": "The maximum number of tokens to use as client when talking to chatModel. If not set, clients need to set their own limit. If smartContextWindow is enabled, this value will be overridden by the clients.",
           "type": "integer"
         },
+        "smartContextWindow": {
+          "description": "Whether the maximum number of tokens should be automatically adjusted by the client based on the name of chatModel. If enabled, it will override the value set in chatModelMaxTokens.",
+          "type": "string",
+          "default": "enabled",
+          "enum": ["enabled", "disabled"]
+        },
         "completionModel": {
-          "description": "The model used for code completion. If using the default provider 'sourcegraph', a reasonable default model will be set.\n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommed using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
+          "description": "The model used for code completion. If using the default provider 'sourcegraph', a reasonable default model will be set.\n NOTE: The Anthropic messages API does not support model names like claude-2 or claude-instant-1 where only the major version is specified as they are retired. We recommend using a specific model identifier as specified here https://docs.anthropic.com/claude/docs/models-overview#model-comparison ",
           "type": "string",
           "not": {
             "enum": ["claude-2", "claude-instant-1"]
@@ -2918,7 +2945,7 @@
           "type": "string",
           "description": "The external completions provider. Defaults to 'sourcegraph'.",
           "default": "sourcegraph",
-          "enum": ["anthropic", "openai", "sourcegraph", "azure-openai", "aws-bedrock", "fireworks"]
+          "enum": ["anthropic", "openai", "sourcegraph", "azure-openai", "aws-bedrock", "fireworks", "google"]
         },
         "endpoint": {
           "type": "string",
@@ -3360,7 +3387,7 @@
           ]
         },
         "allowGroupsPermissionsSync": {
-          "description": "Experimental: Allows sync of GitHub teams and organizations permissions across all external services associated with this provider to allow enabling of [repository permissions caching](https://sourcegraph.com/docs/admin/external_service/github#teams-and-organizations-permissions-caching).",
+          "description": "Experimental: Allows sync of GitHub teams and organizations permissions across all external services associated with this provider to allow enabling of [repository permissions caching](https://sourcegraph.com/docs/admin/code_hosts/github#teams-and-organizations-permissions-caching).",
           "default": false,
           "type": "boolean"
         }
@@ -3894,6 +3921,17 @@
         "text": {
           "description": "Optional template for plain-text body. If not provided, a plain-text body will be automatically generated from the HTML template.",
           "type": "string"
+        }
+      }
+    },
+    "CodyContextFilterItem": {
+      "type": "object",
+      "required": ["repoNamePattern"],
+      "properties": {
+        "repoNamePattern": {
+          "description": "Regular expression which matches a set of repository names. The pattern is evaluated using Go regular expression syntax (https://golang.org/pkg/regexp/). By default, the pattern matches partially. Use \\\"^...$\\\" for whole-string matching.",
+          "type": "string",
+          "format": "regex"
         }
       }
     }

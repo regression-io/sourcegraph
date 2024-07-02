@@ -1,12 +1,12 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import {
-    Observable,
     fromEvent,
-    Subscription,
+    type Notification,
+    Observable,
     type OperatorFunction,
     pipe,
     type Subscriber,
-    type Notification,
+    Subscription,
 } from 'rxjs'
 import { defaultIfEmpty, map, materialize, scan, switchMap } from 'rxjs/operators'
 
@@ -241,7 +241,7 @@ export interface Skipped {
      * - repository-cloning :: we could not search a repository because it is not cloned.
      * - repository-missing :: we could not search a repository because it is not cloned and we failed to find it on the remote code host.
      * - backend-missing :: we may be missing results due to a backend being transiently down.
-     * - excluded-fork :: we did not search a repository because it is a fork.
+     * - repository-fork :: we did not search a repository because it is a fork.
      * - excluded-archive :: we did not search a repository because it is archived.
      * - display :: we hit the display limit, so we stopped sending results from the backend.
      */
@@ -252,8 +252,8 @@ export interface Skipped {
         | 'shard-timedout'
         | 'repository-cloning'
         | 'repository-missing'
+        | 'repository-fork'
         | 'backend-missing'
-        | 'excluded-fork'
         | 'excluded-archive'
         | 'display'
         | 'error'
@@ -284,10 +284,21 @@ export interface Filter {
     kind: 'file' | 'repo' | 'lang' | 'utility' | 'author' | 'commit date' | 'symbol type' | 'type'
 }
 
+export const TELEMETRY_FILTER_TYPES: { [key in Filter['kind']]: number } = {
+    file: 1,
+    repo: 2,
+    lang: 3,
+    utility: 4,
+    author: 5,
+    'commit date': 6,
+    'symbol type': 7,
+    type: 8,
+}
+
 export type SmartSearchAlertKind = 'smart-search-additional-results' | 'smart-search-pure-results'
 export type AlertKind = SmartSearchAlertKind | 'unowned-results'
 
-interface Alert {
+export interface Alert {
     title: string
     description?: string | null
     kind?: AlertKind | null
@@ -490,6 +501,12 @@ export const messageHandlers: MessageHandlers = {
 
 export interface StreamSearchOptions {
     version: string
+    /**
+     * TODO(stefan): "patternType" should be an optional parameter. Both Stream API and the GQL API don't require it.
+     * In the UI, we sometimes prefer to remove the "patternType:" filter from the query for better readability.
+     * "patternType" should be used to set the patternType of a query for those cases. Use "version" to
+     * define the default patternType instead.
+     */
     patternType: SearchPatternType
     caseSensitive: boolean
     trace: string | undefined
@@ -608,19 +625,21 @@ export function getRepositoryUrl(repository: string, branches?: string[]): strin
 }
 
 export function getRevision(branches?: string[], version?: string): string {
-    if (branches && branches.length > 0) {
-        return branches[0]
+    let revision = ''
+    if (branches) {
+        const branch = branches[0]
+        if (branch !== '') {
+            revision = branch
+        }
+    } else if (version) {
+        revision = version
     }
-    if (version) {
-        return version
-    }
-    return ''
+
+    return revision
 }
 
 export function getFileMatchUrl(fileMatch: ContentMatch | SymbolMatch | PathMatch): string {
-    // We are not using getRevision here, because we want to flip the logic from
-    // "branches first" to "revsion first"
-    const revision = fileMatch.commit ?? fileMatch.branches?.[0]
+    const revision = getRevision(fileMatch.branches, fileMatch.commit)
     const encodedFilePath = fileMatch.path.split('/').map(encodeURIComponent).join('/')
     return `/${fileMatch.repository}${revision ? '@' + revision : ''}/-/blob/${encodedFilePath}`
 }

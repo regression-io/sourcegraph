@@ -21,9 +21,10 @@ import {
     getFileMatchUrl,
     getRepositoryUrl,
     getRevision,
+    type LineMatch,
 } from '@sourcegraph/shared/src/search/stream'
 import { useSettings, type SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
-import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
 import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { Icon } from '@sourcegraph/wildcard'
 
@@ -38,7 +39,7 @@ import resultStyles from './ResultContainer.module.scss'
 
 const DEFAULT_VISIBILITY_OFFSET = { bottom: -500 }
 
-interface Props extends SettingsCascadeProps, TelemetryProps {
+interface Props extends SettingsCascadeProps, TelemetryProps, TelemetryV2Props {
     /**
      * The file match search result.
      */
@@ -80,6 +81,13 @@ interface Props extends SettingsCascadeProps, TelemetryProps {
     openInNewTab?: boolean
 
     index: number
+
+    /**
+     * Don't display the file preview button in the VSCode extension.
+     * Expose this prop to allow the VSCode extension to hide the button.
+     * Name it "hide" in an attempt to communicate that hiding is a special case.
+     */
+    hideFilePreviewButton?: boolean
 }
 
 const BY_LINE_RANKING = 'by-line-number'
@@ -95,8 +103,10 @@ export const FileContentSearchResult: React.FunctionComponent<React.PropsWithChi
     showAllMatches,
     openInNewTab,
     telemetryService,
+    telemetryRecorder,
     fetchHighlightedFileLineRanges,
     onSelect,
+    hideFilePreviewButton = false, // hiding the file preview button is a special case for the VSCode extension; we normally want it shown.
 }) => {
     const repoAtRevisionURL = getRepositoryUrl(result.repository, result.branches)
     const revisionDisplayName = getRevision(result.branches, result.commit)
@@ -111,10 +121,7 @@ export const FileContentSearchResult: React.FunctionComponent<React.PropsWithChi
 
     const contextLines = useMemo(() => settings?.['search.contextLines'] ?? 1, [settings])
 
-    const unhighlightedGroups: MatchGroup[] = useMemo(
-        () => reranker(result.chunkMatches?.map(chunkToMatchGroup) ?? []),
-        [result, reranker]
-    )
+    const unhighlightedGroups: MatchGroup[] = useMemo(() => reranker(matchesToMatchGroups(result)), [result, reranker])
 
     const [expandedGroups, setExpandedGroups] = useState(unhighlightedGroups)
     const collapsedGroups = truncateGroups(expandedGroups, 5, contextLines)
@@ -202,8 +209,7 @@ export const FileContentSearchResult: React.FunctionComponent<React.PropsWithChi
                     className={resultStyles.copyButton}
                     filePath={result.path}
                     telemetryService={telemetryService}
-                    // TODO (dadlerj): update to use a real telemetry recorder
-                    telemetryRecorder={noOpTelemetryRecorder}
+                    telemetryRecorder={telemetryRecorder}
                 />
             </span>
         </>
@@ -243,7 +249,15 @@ export const FileContentSearchResult: React.FunctionComponent<React.PropsWithChi
             className={classNames(resultStyles.copyButtonContainer, containerClassName)}
             rankingDebug={result.debug}
             repoLastFetched={result.repoLastFetched}
-            actions={<SearchResultPreviewButton result={result} telemetryService={telemetryService} />}
+            actions={
+                !hideFilePreviewButton ? (
+                    <SearchResultPreviewButton
+                        result={result}
+                        telemetryService={telemetryService}
+                        telemetryRecorder={telemetryRecorder}
+                    />
+                ) : undefined
+            }
         >
             <VisibilitySensor
                 onChange={(visible: boolean) => visible && onVisible()}
@@ -256,6 +270,7 @@ export const FileContentSearchResult: React.FunctionComponent<React.PropsWithChi
                         grouped={expanded ? expandedGroups : collapsedGroups}
                         settingsCascade={settingsCascade}
                         telemetryService={telemetryService}
+                        telemetryRecorder={telemetryRecorder}
                         openInNewTab={openInNewTab}
                     />
                     {collapsible && (
@@ -292,6 +307,12 @@ function countHighlightRanges(groups: MatchGroup[]): number {
     return groups.reduce((count, group) => count + group.matches.length, 0)
 }
 
+function matchesToMatchGroups(result: ContentMatch): MatchGroup[] {
+    return [
+        ...(result.lineMatches?.map(lineToMatchGroup) ?? []),
+        ...(result.chunkMatches?.map(chunkToMatchGroup) ?? []),
+    ]
+}
 function chunkToMatchGroup(chunk: ChunkMatch): MatchGroup {
     const matches = chunk.ranges.map(range => ({
         startLine: range.start.line,
@@ -299,12 +320,28 @@ function chunkToMatchGroup(chunk: ChunkMatch): MatchGroup {
         endLine: range.end.line,
         endCharacter: range.end.column,
     }))
-    const plaintextLines = chunk.content.split(/\r?\n/)
+    const plaintextLines = chunk.content.replace(/\r?\n$/, '').split(/\r?\n/)
     return {
         plaintextLines,
         highlightedHTMLRows: undefined, // populated lazily
         matches,
         startLine: chunk.contentStart.line,
         endLine: chunk.contentStart.line + plaintextLines.length,
+    }
+}
+
+function lineToMatchGroup(line: LineMatch): MatchGroup {
+    const matches = line.offsetAndLengths.map(offsetAndLength => ({
+        startLine: line.lineNumber,
+        startCharacter: offsetAndLength[0],
+        endLine: line.lineNumber,
+        endCharacter: offsetAndLength[0] + offsetAndLength[1],
+    }))
+    return {
+        plaintextLines: [line.line],
+        highlightedHTMLRows: undefined, // populated lazily
+        matches,
+        startLine: line.lineNumber,
+        endLine: line.lineNumber + 1, // the matches support `endLine` == `startLine`, but MatchGroup requires `endLine` > `startLine`
     }
 }

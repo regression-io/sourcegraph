@@ -1,4 +1,5 @@
 <script lang="ts">
+    // @sg EnableRollout
     import { queryStateStore } from '$lib/search/state'
     import { settings } from '$lib/stores'
 
@@ -27,6 +28,10 @@
     $: queryState.setSettings($settings)
 </script>
 
+<svelte:head>
+    <title>{data.queryFromURL ? `${data.queryFromURL} - ` : ''}Sourcegraph</title>
+</svelte:head>
+
 {#if data.searchStream}
     <SearchResults
         bind:this={searchResults}
@@ -36,5 +41,7 @@
         selectedFilters={data.queryFilters}
     />
 {:else}
-    <SearchHome {queryState} />
+    <SearchHome {queryState}>
+        <svelte:component this={data.footer} />
+    </SearchHome>
 {/if}

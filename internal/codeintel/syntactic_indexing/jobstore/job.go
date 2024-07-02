@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/database/dbutil"
 	"github.com/sourcegraph/sourcegraph/internal/workerutil"
 )
@@ -21,7 +22,7 @@ const (
 // record have a special meaning assigned to them by
 // the queries dbworker performs. You can read more
 // about the different fields and what they do here:
-// https://sourcegraph.com/docs/dev/background-information/workers#database-backed-stores
+// https://docs-legacy.sourcegraph.com/dev/background-information/workers#database-backed-stores
 type SyntacticIndexingJob struct {
 	ID             int         `json:"id"`
 	State          recordState `json:"state"`
@@ -37,9 +38,9 @@ type SyntacticIndexingJob struct {
 	// The fields below are not part of the standard dbworker fields
 
 	// Which commit to index
-	Commit string `json:"commit"`
+	Commit api.CommitID `json:"commit"`
 	// Which repository id to index
-	RepositoryID int `json:"repositoryId"`
+	RepositoryID api.RepoID `json:"repositoryId"`
 	// Name of repository being indexed
 	RepositoryName string `json:"repositoryName"`
 	// Which user scheduled this job

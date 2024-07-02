@@ -1,14 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-    mdiClose,
-    mdiSend,
     mdiArrowDown,
-    mdiPencil,
-    mdiThumbUp,
-    mdiThumbDown,
     mdiCheck,
+    mdiClose,
+    mdiPencil,
+    mdiSend,
     mdiStopCircleOutline,
+    mdiThumbDown,
+    mdiThumbUp,
 } from '@mdi/js'
 import classNames from 'classnames'
 import { useLocation } from 'react-router-dom'
@@ -24,18 +24,16 @@ import {
 } from '@sourcegraph/cody-ui'
 import type { AuthenticatedUser } from '@sourcegraph/shared/src/auth'
 import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
-import { Button, Icon, TextArea, Link, Tooltip, Alert, Text, H2 } from '@sourcegraph/wildcard'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
+import { Alert, Button, H2, Icon, Link, Text, TextArea, Tooltip } from '@sourcegraph/wildcard'
 
-import { eventLogger } from '../../../tracking/eventLogger'
 import { CodyPageIcon } from '../../chat/CodyPageIcon'
-import { isCodyEnabled, isEmailVerificationNeededForCody, isSignInRequiredForCody } from '../../isCodyEnabled'
 import { useCodySidebar } from '../../sidebar/Provider'
 import type { CodyChatStore } from '../../useCodyChat'
+import { currentUserRequiresEmailVerificationForCody } from '../../util'
 import { GettingStarted } from '../GettingStarted'
 import { ScopeSelector } from '../ScopeSelector'
 import type { ScopeSelectorProps } from '../ScopeSelector/ScopeSelector'
-
-import { useIsFileIgnored } from './useIsFileIgnored'
 
 import styles from './ChatUi.module.scss'
 
@@ -54,7 +52,7 @@ export const ChatUI: React.FC<IChatUIProps> = ({
     telemetryRecorder,
 }): JSX.Element => {
     const onFeedbackSubmit = (feedback: string): void => {
-        eventLogger.log(`web:cody:feedbackSubmit:${feedback}`)
+        EVENT_LOGGER.log(`web:cody:feedbackSubmit:${feedback}`)
         // TODO (dadlerj): update @sourcegraph/cody-ui/dist/Chat package to enforce a limited set of feedback strings.
         // Until then, this is a hack to avoid arbitrary event features.
         if (feedback === 'positive' || feedback === 'negative') {
@@ -99,8 +97,6 @@ export const ChatUI: React.FC<IChatUIProps> = ({
     const onSubmit = useCallback((text: string) => submitMessage(text), [submitMessage])
     const onEdit = useCallback((text: string) => editMessage(text), [editMessage])
 
-    const isFileIgnored = useIsFileIgnored()
-
     const scopeSelectorProps: ScopeSelectorProps = useMemo(
         () => ({
             scope,
@@ -111,7 +107,6 @@ export const ChatUI: React.FC<IChatUIProps> = ({
             transcriptHistory,
             className: 'mt-2',
             authenticatedUser,
-            isFileIgnored,
         }),
         [
             scope,
@@ -121,7 +116,6 @@ export const ChatUI: React.FC<IChatUIProps> = ({
             logTranscriptEvent,
             transcriptHistory,
             authenticatedUser,
-            isFileIgnored,
         ]
     )
 
@@ -179,7 +173,7 @@ export const ChatUI: React.FC<IChatUIProps> = ({
                 transcriptActionClassName={styles.transcriptAction}
                 FeedbackButtonsContainer={FeedbackButtons}
                 feedbackButtonsOnSubmit={onFeedbackSubmit}
-                needsEmailVerification={isEmailVerificationNeededForCody()}
+                needsEmailVerification={currentUserRequiresEmailVerificationForCody()}
                 needsEmailVerificationNotice={NeedsEmailVerificationNotice}
                 codyNotEnabledNotice={CodyNotEnabledNotice}
                 contextStatusComponent={ScopeSelector}
@@ -188,7 +182,7 @@ export const ChatUI: React.FC<IChatUIProps> = ({
                 gettingStartedComponentProps={gettingStartedComponentProps}
                 abortMessageInProgressComponent={AbortMessageInProgress}
                 onAbortMessageInProgress={abortMessageInProgress}
-                isCodyEnabled={isCodyEnabled()}
+                isCodyEnabled={window.context?.codyEnabledForCurrentUser}
             />
         </>
     )
@@ -366,9 +360,9 @@ export const AutoResizableTextArea: React.FC<AutoResizableTextAreaProps> = React
         return (
             <Tooltip
                 content={
-                    isSignInRequiredForCody()
+                    !window.context.isAuthenticatedUser
                         ? 'Sign in to get access to Cody.'
-                        : isEmailVerificationNeededForCody()
+                        : currentUserRequiresEmailVerificationForCody()
                         ? 'Verify your email to use Cody.'
                         : ''
                 }
@@ -376,7 +370,7 @@ export const AutoResizableTextArea: React.FC<AutoResizableTextAreaProps> = React
                 <TextArea
                     ref={textAreaRef}
                     className={className}
-                    value={isSignInRequiredForCody() ? 'Sign in to get access to use Cody' : value}
+                    value={!window.context.isAuthenticatedUser ? 'Sign in to get access to use Cody' : value}
                     onChange={handleChange}
                     rows={1}
                     autoFocus={false}
@@ -423,7 +417,7 @@ const CodyNotEnabledNotice: React.FunctionComponent = React.memo(function CodyNo
             <div className="d-flex align-items-start">
                 <CodyNotEnabledIcon className="flex-shrink-0" />
                 <Text className="ml-2">
-                    {isSignInRequiredForCody() ? (
+                    {!window.context?.isAuthenticatedUser ? (
                         <>
                             <Link to={`/sign-in?returnTo=${location.pathname}`}>Sign in</Link> to get access to Cody.
                             You can learn more about Cody{' '}

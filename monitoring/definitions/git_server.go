@@ -2,10 +2,11 @@ package definitions
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/iancoleman/strcase"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
-	"time"
 
 	"github.com/sourcegraph/sourcegraph/monitoring/definitions/shared"
 	"github.com/sourcegraph/sourcegraph/monitoring/monitoring"
@@ -13,8 +14,9 @@ import (
 
 func GitServer() *monitoring.Dashboard {
 	const (
-		containerName   = "gitserver"
-		grpcServiceName = "gitserver.v1.GitserverService"
+		containerName             = "gitserver"
+		grpcGitServiceName        = "gitserver.v1.GitserverService"
+		grpcRepositoryServiceName = "gitserver.v1.GitserverRepositoryService"
 	)
 
 	scrapeJobRegex := fmt.Sprintf(".*%s", containerName)
@@ -30,7 +32,8 @@ func GitServer() *monitoring.Dashboard {
 
 	vcsSyncerVariableName := "vcsSyncerType"
 
-	grpcMethodVariable := shared.GRPCMethodVariable("gitserver", grpcServiceName)
+	grpcGitServiceMethodVariable := shared.GRPCMethodVariable("Git Service", grpcGitServiceName)
+	grpcRepositoryServiceMethodVariable := shared.GRPCMethodVariable("Repository Service", grpcRepositoryServiceName)
 
 	titleCaser := cases.Title(language.English)
 
@@ -119,7 +122,8 @@ func GitServer() *monitoring.Dashboard {
 				},
 				Multi: true,
 			},
-			grpcMethodVariable,
+			grpcGitServiceMethodVariable,
+			grpcRepositoryServiceMethodVariable,
 			{
 				Label: "VCS Syncer Kind",
 				Name:  vcsSyncerVariableName,
@@ -188,25 +192,41 @@ func GitServer() *monitoring.Dashboard {
 							Name:        "disk_space_remaining",
 							Description: "disk space remaining",
 							Query:       "(src_gitserver_disk_space_available{instance=~`${shard:regex}`} / src_gitserver_disk_space_total{instance=~`${shard:regex}`}) * 100",
-							// Warning alert when we have disk space remaining that is
-							// approaching the default SRC_REPOS_DESIRED_PERCENT_FREE
-							Warning: monitoring.Alert().Less(15),
-							// Critical alert when we have less space remaining than the
-							// default SRC_REPOS_DESIRED_PERCENT_FREE some amount of time.
-							// This means that gitserver should be evicting repos, but it's
-							// either filling up faster than it can evict, or there is an
-							// issue with the janitor job.
-							Critical: monitoring.Alert().Less(10).For(10 * time.Minute),
+							Warning:     monitoring.Alert().Less(15),
+							Critical:    monitoring.Alert().Less(10).For(10 * time.Minute),
 							Panel: monitoring.Panel().LegendFormat("{{instance}}").
 								Unit(monitoring.Percentage).
 								With(monitoring.PanelOptions.LegendOnRight()),
 							Owner: monitoring.ObservableOwnerSource,
 							Interpretation: `
-								Indicates disk space remaining for each gitserver instance, which is used to determine when to start evicting least-used repository clones from disk (default 10%, configured by 'SRC_REPOS_DESIRED_PERCENT_FREE').
+								Indicates disk space remaining for each gitserver instance. When disk space is low, gitserver may experience slowdowns or fails to fetch repositories.
 							`,
 							NextSteps: `
 								- On a warning alert, you may want to provision more disk space: Disk pressure may result in decreased performance, users having to wait for repositories to clone, etc.
 								- On a critical alert, you need to provision more disk space. Running out of disk space will result in decreased performance, or complete service outage.
+							`,
+						},
+						{
+							Name:        "high_memory_git_commands",
+							Description: "number of git commands that exceeded the threshold for high memory usage",
+							Query:       "sort_desc(sum(sum_over_time(src_gitserver_exec_high_memory_usage_count{instance=~`${shard:regex}`}[2m])) by (cmd))",
+							// For now we use this to learn, not to alert.
+							NoAlert: true,
+							Owner:   monitoring.ObservableOwnerSource,
+							Panel: monitoring.
+								Panel().
+								LegendFormat("{{cmd}}").
+								Unit(monitoring.Number).
+								With(monitoring.PanelOptions.LegendOnRight()),
+							Interpretation: `
+								This graph tracks the number of git subcommands that gitserver ran that exceeded the threshold for high memory usage.
+								This graph in itself is not an alert, but it is used to learn about the memory usage of gitserver.
+
+								If gitserver frequently serves requests where the status code is KILLED, this graph might help to correlate that
+								with the high memory usage.
+
+								This graph spiking is not a problem necessarily. But when subcommands or the whole gitserver service are getting
+								OOM killed and this graph shows spikes, increasing the memory might be useful.
 							`,
 						},
 					},
@@ -246,7 +266,6 @@ func GitServer() *monitoring.Dashboard {
 							Description: "echo test command duration",
 							Query:       "max(src_gitserver_echo_duration_seconds)",
 							Warning:     monitoring.Alert().GreaterOrEqual(0.020).For(30 * time.Second),
-							Critical:    monitoring.Alert().GreaterOrEqual(1).For(1 * time.Minute),
 							Panel:       monitoring.Panel().LegendFormat("running commands").Unit(monitoring.Seconds),
 							Owner:       monitoring.ObservableOwnerSource,
 							Interpretation: `
@@ -305,6 +324,19 @@ func GitServer() *monitoring.Dashboard {
 								This metric is only for informational purposes. It indicates the total number of repositories on gitserver.
 
 								It does not indicate any problems with the instance.
+							`,
+						},
+						{
+							Name:        "src_gitserver_client_concurrent_requests",
+							Description: "number of concurrent requests running against gitserver client",
+							Query:       "sum by (job, instance) (src_gitserver_client_concurrent_requests)",
+							NoAlert:     true,
+							Panel:       monitoring.Panel().LegendFormat("{{job}} {{instance}}"),
+							Owner:       monitoring.ObservableOwnerSource,
+							Interpretation: `
+								This metric is only for informational purposes. It indicates the current number of concurrently running requests by process against gitserver gRPC.
+
+								It does not indicate any problems with the instance, but can give a good indication of load spikes or request throttling.
 							`,
 						},
 					},
@@ -455,17 +487,6 @@ func GitServer() *monitoring.Dashboard {
 					},
 					{
 						{
-							Name:           "repos_removed",
-							Description:    "repositories removed due to disk pressure",
-							Query:          "sum by (instance) (rate(src_gitserver_repos_removed_disk_pressure{instance=~`${shard:regex}`}[5m]))",
-							NoAlert:        true,
-							Panel:          monitoring.Panel().LegendFormat("{{instance}}").Unit(monitoring.Number),
-							Owner:          monitoring.ObservableOwnerSource,
-							Interpretation: "Repositories removed due to disk pressure",
-						},
-					},
-					{
-						{
 							Name:           "non_existent_repos_removed",
 							Description:    "repositories removed because they are not defined in the DB",
 							Query:          "sum by (instance) (increase(src_gitserver_non_existing_repos_removed[5m]))",
@@ -565,6 +586,7 @@ func GitServer() *monitoring.Dashboard {
 
 			shared.GitServer.NewBackendGroup(containerName, true),
 			shared.GitServer.NewClientGroup("*"),
+			shared.GitServer.NewRepoClientGroup("*"),
 
 			shared.NewDiskMetricsGroup(
 				shared.DiskMetricsGroupOptions{
@@ -579,32 +601,62 @@ func GitServer() *monitoring.Dashboard {
 				monitoring.ObservableOwnerSource,
 			),
 
+			// GitService
 			shared.NewGRPCServerMetricsGroup(
 				shared.GRPCServerMetricsOptions{
-					HumanServiceName:   "gitserver",
-					RawGRPCServiceName: grpcServiceName,
+					HumanServiceName:   "Git Service",
+					RawGRPCServiceName: grpcGitServiceName,
 
-					MethodFilterRegex:    fmt.Sprintf("${%s:regex}", grpcMethodVariable.Name),
+					MethodFilterRegex:    fmt.Sprintf("${%s:regex}", grpcGitServiceMethodVariable.Name),
 					InstanceFilterRegex:  `${shard:regex}`,
 					MessageSizeNamespace: "src",
 				}, monitoring.ObservableOwnerSource),
 
 			shared.NewGRPCInternalErrorMetricsGroup(
 				shared.GRPCInternalErrorMetricsOptions{
-					HumanServiceName:   "gitserver",
-					RawGRPCServiceName: grpcServiceName,
+					HumanServiceName:   "Git Service",
+					RawGRPCServiceName: grpcGitServiceName,
 					Namespace:          "src",
 
-					MethodFilterRegex: fmt.Sprintf("${%s:regex}", grpcMethodVariable.Name),
+					MethodFilterRegex: fmt.Sprintf("${%s:regex}", grpcGitServiceMethodVariable.Name),
 				}, monitoring.ObservableOwnerSource),
 
 			shared.NewGRPCRetryMetricsGroup(
 				shared.GRPCRetryMetricsOptions{
-					HumanServiceName:   "gitserver",
-					RawGRPCServiceName: grpcServiceName,
+					HumanServiceName:   "Git Service",
+					RawGRPCServiceName: grpcGitServiceName,
 					Namespace:          "src",
 
-					MethodFilterRegex: fmt.Sprintf("${%s:regex}", grpcMethodVariable.Name),
+					MethodFilterRegex: fmt.Sprintf("${%s:regex}", grpcGitServiceMethodVariable.Name),
+				}, monitoring.ObservableOwnerSource),
+
+			// RepositoryService
+			shared.NewGRPCServerMetricsGroup(
+				shared.GRPCServerMetricsOptions{
+					HumanServiceName:   "Repository Service",
+					RawGRPCServiceName: grpcRepositoryServiceName,
+
+					MethodFilterRegex:    fmt.Sprintf("${%s:regex}", grpcRepositoryServiceMethodVariable.Name),
+					InstanceFilterRegex:  `${shard:regex}`,
+					MessageSizeNamespace: "src",
+				}, monitoring.ObservableOwnerSource),
+
+			shared.NewGRPCInternalErrorMetricsGroup(
+				shared.GRPCInternalErrorMetricsOptions{
+					HumanServiceName:   "Repository Service",
+					RawGRPCServiceName: grpcRepositoryServiceName,
+					Namespace:          "src",
+
+					MethodFilterRegex: fmt.Sprintf("${%s:regex}", grpcRepositoryServiceMethodVariable.Name),
+				}, monitoring.ObservableOwnerSource),
+
+			shared.NewGRPCRetryMetricsGroup(
+				shared.GRPCRetryMetricsOptions{
+					HumanServiceName:   "Repository Service",
+					RawGRPCServiceName: grpcRepositoryServiceName,
+					Namespace:          "src",
+
+					MethodFilterRegex: fmt.Sprintf("${%s:regex}", grpcRepositoryServiceMethodVariable.Name),
 				}, monitoring.ObservableOwnerSource),
 
 			shared.NewSiteConfigurationClientMetricsGroup(shared.SiteConfigurationMetricsOptions{

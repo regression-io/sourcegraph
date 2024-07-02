@@ -47,7 +47,8 @@
     "docsite:serve": "./dev/docsite.sh -config doc/docsite.json serve -http=localhost:5080",
     "build-browser-extension": "pnpm --filter @sourcegraph/browser run build",
     "chromatic": "CHROMATIC=true pnpm run _chromatic --storybook-config-dir client/storybook/src --build-script-name=storybook:build",
-    "_chromatic": "chromatic"
+    "_chromatic": "chromatic",
+    "install:browsers": "pnpm -r install:browsers"
   },
   "jscpd": {
     "gitignore": true,
@@ -72,8 +73,6 @@
     "@graphql-codegen/typescript-operations": "2.5.10",
     "@ianvs/prettier-plugin-sort-imports": "^3.7.1",
     "@octokit/rest": "^16.36.0",
-    "@percy/cli": "^1.24.0",
-    "@percy/puppeteer": "^2.0.2",
     "@pollyjs/adapter": "^5.0.0",
     "@pollyjs/core": "^5.1.0",
     "@pollyjs/persister-fs": "^5.0.0",
@@ -81,6 +80,7 @@
     "@sentry/cli": "^1.74.4",
     "@sentry/esbuild-plugin": "^2.7.1",
     "@slack/web-api": "^5.15.0",
+    "@sourcegraph/cody-context-filters-test-dataset": "^1.0.0",
     "@sourcegraph/eslint-config": "0.37.1",
     "@sourcegraph/eslint-plugin-sourcegraph": "^1.0.5",
     "@sourcegraph/eslint-plugin-wildcard": "workspace:*",
@@ -280,7 +280,7 @@
     "@codemirror/lint": "^6.0.0",
     "@codemirror/search": "^6.0.1",
     "@codemirror/state": "^6.4.0",
-    "@codemirror/view": "^6.23.1",
+    "@codemirror/view": "^6.26.3",
     "@date-fns/utc": "^1.1.1",
     "@graphiql/react": "^0.10.0",
     "@lezer/common": "^1.0.0",
@@ -310,6 +310,9 @@
     "@react-aria/live-announcer": "^3.1.0",
     "@sentry/browser": "^7.8.1",
     "@sourcegraph/extension-api-classes": "^1.1.0",
+    "@stripe/react-stripe-js": "^2.7.0",
+    "@stripe/stripe-js": "^3.3.0",
+    "@tanstack/react-query": "^5.39.0",
     "@testing-library/react": "^13.4.0",
     "@visx/annotation": "^2.10.0",
     "@visx/axis": "^2.11.1",
@@ -330,6 +333,7 @@
     "bloomfilter": "^0.0.18",
     "buffer": "^6.0.3",
     "classnames": "^2.2.6",
+    "cody-web-experimental": "^0.1.4",
     "comlink": "^4.3.0",
     "copy-to-clipboard": "^3.3.1",
     "core-js": "^3.8.2",
@@ -347,7 +351,7 @@
     "eventsource": "1.1.1",
     "fast-json-stable-stringify": "^2.0.0",
     "focus-visible": "^5.2.0",
-    "fzf": "^0.5.1",
+    "fzf": "^0.5.2",
     "got": "^11.5.2",
     "graphiql": "^1.11.5",
     "handlebars": "^4.7.7",
@@ -387,6 +391,7 @@
     "pretty-bytes": "^5.3.0",
     "process": "^0.11.10",
     "prop-types": "^15.7.2",
+    "re2js": "^0.4.1",
     "react": "18.1.0",
     "react-calendar": "^3.7.0",
     "react-circular-progressbar": "^2.0.3",
@@ -442,9 +447,19 @@
           "node-gyp": "*"
         }
       },
-      "@percy/sdk-utils": {
+      "mz": {
         "dependencies": {
-          "ws": "*"
+          "graceful-fs": "*"
+        }
+      },
+      "follow-redirects": {
+        "dependencies": {
+          "debug": "*"
+        }
+      },
+      "debug": {
+        "dependencies": {
+          "supports-color": "*"
         }
       },
       "@graphql-codegen/cli@5": {

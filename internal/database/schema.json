@@ -46,6 +46,16 @@
       ]
     },
     {
+      "Name": "pattern_type",
+      "Labels": [
+        "keyword",
+        "literal",
+        "regexp",
+        "standard",
+        "structural"
+      ]
+    },
+    {
       "Name": "persistmode",
       "Labels": [
         "record",
@@ -11813,6 +11823,16 @@
           "IndexDefinition": "CREATE UNIQUE INDEX exhaustive_search_jobs_pkey ON exhaustive_search_jobs USING btree (id)",
           "ConstraintType": "p",
           "ConstraintDefinition": "PRIMARY KEY (id)"
+        },
+        {
+          "Name": "exhaustive_search_jobs_state",
+          "IsPrimaryKey": false,
+          "IsUnique": false,
+          "IsExclusion": false,
+          "IsDeferrable": false,
+          "IndexDefinition": "CREATE INDEX exhaustive_search_jobs_state ON exhaustive_search_jobs USING btree (state)",
+          "ConstraintType": "",
+          "ConstraintDefinition": ""
         }
       ],
       "Constraints": [
@@ -12075,6 +12095,16 @@
           "IndexDefinition": "CREATE UNIQUE INDEX exhaustive_search_repo_jobs_pkey ON exhaustive_search_repo_jobs USING btree (id)",
           "ConstraintType": "p",
           "ConstraintDefinition": "PRIMARY KEY (id)"
+        },
+        {
+          "Name": "exhaustive_search_repo_jobs_state",
+          "IsPrimaryKey": false,
+          "IsUnique": false,
+          "IsExclusion": false,
+          "IsDeferrable": false,
+          "IndexDefinition": "CREATE INDEX exhaustive_search_repo_jobs_state ON exhaustive_search_repo_jobs USING btree (state)",
+          "ConstraintType": "",
+          "ConstraintDefinition": ""
         }
       ],
       "Constraints": [
@@ -12331,6 +12361,16 @@
           "IndexDefinition": "CREATE UNIQUE INDEX exhaustive_search_repo_revision_jobs_pkey ON exhaustive_search_repo_revision_jobs USING btree (id)",
           "ConstraintType": "p",
           "ConstraintDefinition": "PRIMARY KEY (id)"
+        },
+        {
+          "Name": "exhaustive_search_repo_revision_jobs_state",
+          "IsPrimaryKey": false,
+          "IsUnique": false,
+          "IsExclusion": false,
+          "IsDeferrable": false,
+          "IndexDefinition": "CREATE INDEX exhaustive_search_repo_revision_jobs_state ON exhaustive_search_repo_revision_jobs USING btree (state)",
+          "ConstraintType": "",
+          "ConstraintDefinition": ""
         }
       ],
       "Constraints": [
@@ -19040,6 +19080,19 @@
           "TypeName": "integer",
           "IsNullable": true,
           "Default": "",
+          "CharacterMaximumLength": 0,
+          "IsIdentity": false,
+          "IdentityGeneration": "",
+          "IsGenerated": "NEVER",
+          "GenerationExpression": "",
+          "Comment": ""
+        },
+        {
+          "Name": "pattern_type",
+          "Index": 12,
+          "TypeName": "pattern_type",
+          "IsNullable": false,
+          "Default": "'standard'::pattern_type",
           "CharacterMaximumLength": 0,
           "IsIdentity": false,
           "IdentityGeneration": "",
@@ -27608,7 +27661,7 @@
           "IsUnique": true,
           "IsExclusion": false,
           "IsDeferrable": false,
-          "IndexDefinition": "CREATE UNIQUE INDEX user_external_accounts_user_id_scim_service_type ON user_external_accounts USING btree (user_id, service_type) WHERE service_type = 'scim'::text",
+          "IndexDefinition": "CREATE UNIQUE INDEX user_external_accounts_user_id_scim_service_type ON user_external_accounts USING btree (user_id, service_type) WHERE service_type = 'scim'::text AND deleted_at IS NULL",
           "ConstraintType": "",
           "ConstraintDefinition": ""
         },

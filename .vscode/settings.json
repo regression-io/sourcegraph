@@ -20,7 +20,8 @@
   "files.associations": {
     "**/dev/critical-config.json": "jsonc",
     "**/dev/site-config.json": "jsonc",
-    "**/.mocharc.json": "jsonc"
+    "**/.mocharc.json": "jsonc",
+    "**/tools/build_rules/prelude_bazel": "starlark"
   },
   "json.schemas": [
     {
@@ -72,5 +73,7 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "cody.codebase": "github.com/sourcegraph/sourcegraph",
-  "rust-analyzer.linkedProjects": ["docker-images/syntax-highlighter/Cargo.toml"]
+  "rust-analyzer.linkedProjects": [
+    "docker-images/syntax-highlighter/Cargo.toml"
+  ],
 }

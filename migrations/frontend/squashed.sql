@@ -76,6 +76,14 @@ CREATE TYPE lsif_uploads_transition_columns AS (
 
 COMMENT ON TYPE lsif_uploads_transition_columns IS 'A type containing the columns that make-up the set of tracked transition columns. Primarily used to create a nulled record due to `OLD` being unset in INSERT queries, and creating a nulled record with a subquery is not allowed.';
 
+CREATE TYPE pattern_type AS ENUM (
+    'keyword',
+    'literal',
+    'regexp',
+    'standard',
+    'structural'
+);
+
 CREATE TYPE persistmode AS ENUM (
     'record',
     'snapshot'
@@ -3553,6 +3561,7 @@ CREATE TABLE notebooks (
     namespace_user_id integer,
     namespace_org_id integer,
     updater_user_id integer,
+    pattern_type pattern_type DEFAULT 'standard'::pattern_type NOT NULL,
     CONSTRAINT blocks_is_array CHECK ((jsonb_typeof(blocks) = 'array'::text)),
     CONSTRAINT notebooks_has_max_1_namespace CHECK ((((namespace_user_id IS NULL) AND (namespace_org_id IS NULL)) OR ((namespace_user_id IS NULL) <> (namespace_org_id IS NULL))))
 );
@@ -6077,6 +6086,12 @@ CREATE UNIQUE INDEX executor_secrets_unique_key_namespace_org ON executor_secret
 
 CREATE UNIQUE INDEX executor_secrets_unique_key_namespace_user ON executor_secrets USING btree (key, namespace_user_id, scope) WHERE (namespace_user_id IS NOT NULL);
 
+CREATE INDEX exhaustive_search_jobs_state ON exhaustive_search_jobs USING btree (state);
+
+CREATE INDEX exhaustive_search_repo_jobs_state ON exhaustive_search_repo_jobs USING btree (state);
+
+CREATE INDEX exhaustive_search_repo_revision_jobs_state ON exhaustive_search_repo_revision_jobs USING btree (state);
+
 CREATE INDEX explicit_permissions_bitbucket_projects_jobs_project_key_extern ON explicit_permissions_bitbucket_projects_jobs USING btree (project_key, external_service_id, state);
 
 CREATE INDEX explicit_permissions_bitbucket_projects_jobs_queued_at_idx ON explicit_permissions_bitbucket_projects_jobs USING btree (queued_at);
@@ -6371,7 +6386,7 @@ CREATE UNIQUE INDEX user_external_accounts_account ON user_external_accounts USI
 
 CREATE INDEX user_external_accounts_user_id ON user_external_accounts USING btree (user_id) WHERE (deleted_at IS NULL);
 
-CREATE UNIQUE INDEX user_external_accounts_user_id_scim_service_type ON user_external_accounts USING btree (user_id, service_type) WHERE (service_type = 'scim'::text);
+CREATE UNIQUE INDEX user_external_accounts_user_id_scim_service_type ON user_external_accounts USING btree (user_id, service_type) WHERE ((service_type = 'scim'::text) AND (deleted_at IS NULL));
 
 CREATE UNIQUE INDEX user_repo_permissions_perms_unique_idx ON user_repo_permissions USING btree (user_id, user_external_account_id, repo_id);
 

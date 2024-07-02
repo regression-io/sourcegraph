@@ -6,7 +6,7 @@ echo "~~~ :aspect: :stethoscope: Agent Health check"
 /etc/aspect/workflows/bin/agent_health_check
 
 aspectRC="/tmp/aspect-generated.bazelrc"
-rosetta bazelrc > "$aspectRC"
+rosetta bazelrc >"$aspectRC"
 bazelrc=(--bazelrc="$aspectRC" --bazelrc=.aspect/bazelrc/ci.sourcegraph.bazelrc)
 
 function preview_tags() {
@@ -76,9 +76,9 @@ prod_registries=(
   "$PROD_REGISTRY"
 )
 
-additional_prod_registry=${ADDITIONAL_PROD_REGISTRY:-""}
-if [ -n "$additional_prod_registry" ]; then
-  prod_registries+=("$additional_prod_registry")
+if [ -n "${ADDITIONAL_PROD_REGISTRIES}" ]; then
+  IFS=' ' read -r -a registries <<<"$ADDITIONAL_PROD_REGISTRIES"
+  prod_registries+=("${registries[@]}")
 fi
 
 date_fragment="$(date +%Y-%m-%d)"
@@ -104,22 +104,25 @@ elif [[ "$BUILDKITE_BRANCH" =~ ^main$ ]] || [[ "$BUILDKITE_BRANCH" =~ ^docker-im
   dev_tags+=("insiders")
   prod_tags+=("insiders")
   push_prod=true
-elif [[ "$BUILDKITE_BRANCH" =~ ^main-dry-run/.*  ]]; then
+elif [[ "$BUILDKITE_BRANCH" =~ ^main-dry-run/.* ]]; then
   # We only push on internal registries on a main-dry-run.
   dev_tags+=("insiders")
   prod_tags+=("insiders")
   push_prod=false
-elif [[ "$BUILDKITE_BRANCH" =~ ^cloud-ephemeral/.* ]]; then
-  # Cloud Ephemeral images need a proper semver version
-  dev_tags+=("insiders" "${PUSH_VERSION}")
+elif [[ "$BUILDKITE_BRANCH" =~ ^docker-images/.* ]]; then
+  # We only push on internal registries on a main-dry-run.
+  dev_tags+=("insiders")
   prod_tags+=("insiders")
-  push_prod=false
-
+  push_prod=true
 elif [[ "$BUILDKITE_BRANCH" =~ ^[0-9]+\.[0-9]+$ ]]; then
   # All release branch builds must be published to prod tags to support
   # format introduced by https://github.com/sourcegraph/sourcegraph/pull/48050
   # by release branch deployments.
   push_prod=true
+elif [[ "$BUILDKITE_BRANCH" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  # Patch release builds only need to be pushed to internal registries.
+  push_prod=false
+  dev_tags+=("$BUILDKITE_BRANCH-insiders")
 elif [[ "$BUILDKITE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\-rc\.[0-9]+)?$ ]]; then
   # ok: v5.1.0
   # ok: v5.1.0-rc.5
@@ -130,17 +133,22 @@ elif [[ "$BUILDKITE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\-rc\.[0-9]+)?$ ]]; then
   push_prod=true
 fi
 
+# If we're building ephemeral cloud images, we don't push to prod but we need to prod version as tag
+if [ "${CLOUD_EPHEMERAL:-}" == "true" ]; then
+  dev_tags=("${PUSH_VERSION}")
+  push_prod=false
+fi
+
 # If CANDIDATE_ONLY is set, only push the candidate tag to the dev repo
 if [ -n "$CANDIDATE_ONLY" ]; then
   dev_tags=("${BUILDKITE_COMMIT}_${BUILDKITE_BUILD_NUMBER}_candidate")
   push_prod=false
 fi
 
-
 # Posting the preamble for image pushes.
-echo -e "### ${BUILDKITE_LABEL}" > ./annotations/pushed_images.md
+echo -e "### ${BUILDKITE_LABEL}" >./annotations/pushed_images.md
 echo -e "<details><summary>Click to expand table</summary><table>\n" >>./annotations/pushed_images.md
-echo -e "<tr><th>Name</th><th>Registry</th><th>Tags</th></tr>\n" >> ./annotations/pushed_images.md
+echo -e "<tr><th>Name</th><th>Registry</th><th>Tags</th></tr>\n" >>./annotations/pushed_images.md
 
 preview_tags "${dev_registries[*]}" "${dev_tags[*]}"
 if $push_prod; then
@@ -157,6 +165,8 @@ if $push_prod; then
     prod_tags_args="$prod_tags_args --tag ${t}"
   done
 fi
+
+honeyvent=$(bazel "${bazelrc[@]}" build //dev/tools:honeyvent 2>/dev/null && bazel "${bazelrc[@]}" cquery //dev/tools:honeyvent --output=files 2>/dev/null)
 
 images=$(bazel "${bazelrc[@]}" query 'kind("oci_push rule", //...)')
 
@@ -199,6 +209,15 @@ while read -r line; do
     else
       echo "--- :docker::arrow_heading_up: $target ${duration}s: failed with $exitcode) :red_circle:"
     fi
+
+    $honeyvent -k "$CI_HONEYCOMB_API_KEY" -d "buildkite-pushall" \
+      -n "exit_code" -v "$exitcode" \
+      -n "duration" -v "$duration" \
+      -n "target" -v "$target" \
+      -n "commit" -v "$BUILDKITE_COMMIT" \
+      -n "build_number" -v "$BUILDKITE_BUILD_NUMBER" \
+      -n "branch" -v "$BUILDKITE_BRANCH" \
+      -n "label" -v "$BUILDKITE_LABEL"s
   fi
 done <"$log_file"
 

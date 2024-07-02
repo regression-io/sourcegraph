@@ -71,6 +71,13 @@ func parseConfig(logger log.Logger, cfg conftypes.SiteConfigQuerier, db database
 	}
 
 	existingProviders := make(collections.Set[string])
+	hasAzure := cfg.SiteConfig().Completions != nil && cfg.SiteConfig().Completions.Provider == "azure-openai"
+	hasAzureChatModel := cfg.SiteConfig().Completions != nil && cfg.SiteConfig().Completions.AzureChatModel != ""
+	hasAzureCompletionModel := cfg.SiteConfig().Completions != nil && cfg.SiteConfig().Completions.AzureCompletionModel != ""
+
+	if hasAzure && !(hasAzureChatModel && hasAzureCompletionModel) {
+		problems = append(problems, conf.NewSiteProblem(`when using azure-openai provider its mandatory to set both completions.azureChatModel and completions.azureCompletionModel for proper LLM Token usage`))
+	}
 
 	for _, pr := range cfg.SiteConfig().AuthProviders {
 		if pr.AzureDevOps == nil {
@@ -141,6 +148,7 @@ func parseProvider(logger log.Logger, db database.DB, sourceCfg schema.AuthProvi
 		logger,
 		db,
 		&sessionIssuerHelper{
+			logger:      logger.Scoped("sessionIssuerHelper"),
 			db:          db,
 			CodeHost:    codeHost,
 			clientID:    azureProvider.ClientID,

@@ -10,6 +10,8 @@ import { useCallbackRef } from 'use-callback-ref'
 
 import { logger } from '@sourcegraph/common'
 import type { SearchPatternTypeProps } from '@sourcegraph/shared/src/search'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 import { buildSearchURLQuery } from '@sourcegraph/shared/src/util/url'
 import {
     Container,
@@ -29,11 +31,10 @@ import type { SavedSearchFields, SavedSearchesResult, SavedSearchesVariables } f
 import type { NamespaceProps } from '../namespaces'
 import { deleteSavedSearch, savedSearchesQuery } from '../search/backend'
 import { useNavbarQueryState } from '../stores'
-import { eventLogger } from '../tracking/eventLogger'
 
 import styles from './SavedSearchListPage.module.scss'
 
-interface NodeProps extends SearchPatternTypeProps {
+interface NodeProps extends SearchPatternTypeProps, TelemetryV2Props, NamespaceProps {
     savedSearch: SavedSearchFields
     onDelete: () => void
     linkRef: React.MutableRefObject<HTMLAnchorElement | null> | null
@@ -67,7 +68,11 @@ class SavedSearchNode extends React.PureComponent<NodeProps, NodeState> {
                     )
                 )
                 .subscribe(() => {
-                    eventLogger.log('SavedSearchDeleted')
+                    EVENT_LOGGER.log('SavedSearchDeleted')
+                    this.props.telemetryRecorder.recordEvent(
+                        `${this.props.namespace.__typename.toLowerCase()}.savedSearch`,
+                        'delete'
+                    )
                     this.setState({ isDeleting: false })
                     this.props.onDelete()
                 })
@@ -132,12 +137,13 @@ class SavedSearchNode extends React.PureComponent<NodeProps, NodeState> {
     }
 }
 
-interface Props extends NamespaceProps {}
+interface Props extends NamespaceProps, TelemetryV2Props {}
 
 export const SavedSearchListPage: React.FunctionComponent<Props> = props => {
     React.useEffect(() => {
-        eventLogger.logViewEvent('SavedSearchListPage')
-    }, [])
+        EVENT_LOGGER.logViewEvent('SavedSearchListPage')
+        props.telemetryRecorder.recordEvent(`${props.namespace.__typename.toLowerCase()}.savedSearches.list`, 'view')
+    }, [props.telemetryRecorder, props.namespace.__typename])
 
     const { connection, loading, error, refetch, ...paginationProps } = usePageSwitcherPagination<
         SavedSearchesResult,
@@ -213,7 +219,9 @@ const SavedSearchListPageContent: React.FunctionComponent<React.PropsWithChildre
                     <SavedSearchNode
                         key={search.id}
                         linkRef={location.state?.description === search.description ? callbackReference : null}
-                        {...props}
+                        onDelete={props.onDelete}
+                        telemetryRecorder={props.telemetryRecorder}
+                        namespace={namespace}
                         patternType={searchPatternType}
                         savedSearch={search}
                     />

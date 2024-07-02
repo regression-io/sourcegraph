@@ -9,6 +9,7 @@ go_library(
         "smart_search_job.go",
     ],
     importpath = "github.com/sourcegraph/sourcegraph/internal/search/smartsearch",
+    tags = [TAG_PLATFORM_SEARCH],
     visibility = ["//:__subpackages__"],
     deps = [
         "//internal/search",
@@ -18,8 +19,8 @@ go_library(
         "//internal/search/query",
         "//internal/search/repos",
         "//internal/search/streaming",
+        "//lib/codeintel/languages",
         "//lib/errors",
-        "@com_github_go_enry_go_enry_v2//:go-enry",
         "@com_github_grafana_regexp//:regexp",
         "@io_opentelemetry_go_otel//attribute",
         "@org_gonum_v1_gonum//stat/combin",
@@ -36,6 +37,7 @@ go_test(
     ],
     data = glob(["testdata/**"]),
     embed = [":smartsearch"],
+    tags = [TAG_PLATFORM_SEARCH],
     deps = [
         "//internal/search",
         "//internal/search/alert",

@@ -5,10 +5,17 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
-	"strconv"
 	"sync"
+	"syscall"
 	"time"
+
+	"github.com/dustin/go-humanize"
+
+	"github.com/sourcegraph/sourcegraph/internal/bytesize"
+	"github.com/sourcegraph/sourcegraph/internal/env"
+	"github.com/sourcegraph/sourcegraph/internal/memcmd"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -16,10 +23,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/common"
-	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/git"
 	"github.com/sourcegraph/sourcegraph/internal/actor"
 	"github.com/sourcegraph/sourcegraph/internal/api"
-	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/honey"
 	"github.com/sourcegraph/sourcegraph/internal/lazyregexp"
 	"github.com/sourcegraph/sourcegraph/internal/trace"
@@ -37,6 +42,12 @@ var (
 		Help:    "gitserver.GitCommand latencies in seconds.",
 		Buckets: prometheus.ExponentialBucketsRange(0.01, 60.0, 12),
 	}, []string{"cmd"})
+	highMemoryCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "src_gitserver_exec_high_memory_usage_count",
+		Help: "gitcli.GitCommand high memory usage by subcommand",
+	}, []string{"cmd"})
+
+	memoryObservationEnabled = env.MustGetBool("GITSERVER_MEMORY_OBSERVATION_ENABLED", false, "enable memory observation for gitserver commands")
 )
 
 type commandOpts struct {
@@ -86,9 +97,9 @@ func (g *gitCLIBackend) NewCommand(ctx context.Context, optFns ...CommandOptionF
 
 	logger := g.logger.WithTrace(trace.Context(ctx))
 
-	if !IsAllowedGitCmd(logger, opts.arguments, g.dir) {
+	if !IsAllowedGitCmd(logger, opts.arguments) {
 		blockedCommandExecutedCounter.Inc()
-		return nil, ErrBadGitCommand
+		return nil, errBadGitCommand
 	}
 
 	if len(opts.arguments) == 0 {
@@ -107,14 +118,36 @@ func (g *gitCLIBackend) NewCommand(ctx context.Context, optFns ...CommandOptionF
 	}
 
 	cmd := exec.CommandContext(ctx, "git", opts.arguments...)
+	cmd.Cancel = func() error {
+		// Send SIGKILL to the process group instead of just the process
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	g.dir.Set(cmd)
+
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	// We use setpgid here so that child processes live in their own process groups.
+	// This is helpful for two things:
+	// - We can kill a process group to make sure that any subprocesses git might spawn
+	//   will also receive the termination signal. The standard go implementation sends
+	//   a SIGKILL only to the process itself. By using process groups, we can tell all
+	//   children to shut down as well.
+	// - We want to track maxRSS for tracking purposes to identify memory usage by command
+	//   and linux tracks the maxRSS as "the maximum resident set size used (in kilobytes)"
+	//   of the process in the process group that had the highest maximum resident set size.
+	//   Read: If we don't use a separate process group here, we usually get the maxRSS from
+	//   the process with the biggest memory usage in the process group, which is gitserver.
+	//   So we cannot track the memory well. This is leaky, as it only tracks the largest sub-
+	//   process, but it gives us a good indication of the general resource consumption.
+	cmd.SysProcAttr.Setpgid = true
 
 	stderr, stderrBuf := stderrBuffer()
 	cmd.Stderr = stderr
 
 	wrappedCmd := g.rcf.WrapWithRepoName(ctx, logger, g.repoName, cmd)
 
-	stdout, err := cmd.StdoutPipe()
+	stdout, err := wrappedCmd.StdoutPipe()
 	if err != nil {
 		cancel()
 		return nil, errors.Wrap(err, "failed to create stdout pipe")
@@ -131,33 +164,53 @@ func (g *gitCLIBackend) NewCommand(ctx context.Context, optFns ...CommandOptionF
 		return nil, errors.Wrap(err, "failed to start git process")
 	}
 
+	observer := memcmd.NewNoOpObserver()
+
+	if memoryObservationEnabled {
+		maybeObs, err := memcmd.NewDefaultObserver(ctx, cmd)
+		if err != nil {
+			logger.Warn("failed to create memory observer, defaulting to no-op", log.Error(err))
+		}
+
+		observer = maybeObs
+	}
+	observer.Start()
+	defer func() {
+		if err != nil {
+			observer.Stop() // stop the observer if we return an error
+		}
+	}()
+
 	execRunning.WithLabelValues(subCmd).Inc()
 
-	return &cmdReader{
-		ctx:        ctx,
-		subCmd:     subCmd,
-		ctxCancel:  cancel,
-		cmdStart:   cmdStart,
-		ReadCloser: stdout,
-		cmd:        wrappedCmd,
-		stderr:     stderrBuf,
-		repoName:   g.repoName,
-		logger:     logger,
-		git:        g,
-		tr:         tr,
-	}, nil
+	cr := &cmdReader{
+		ctx:            ctx,
+		subCmd:         subCmd,
+		ctxCancel:      cancel,
+		cmdStart:       cmdStart,
+		stdout:         stdout,
+		cmd:            wrappedCmd,
+		stderr:         stderrBuf,
+		repoName:       g.repoName,
+		logger:         logger,
+		gitDir:         g.dir,
+		tr:             tr,
+		memoryObserver: observer,
+	}
+
+	return cr, nil
 }
 
-// ErrBadGitCommand is returned from the git CLI backend if the arguments provided
+// errBadGitCommand is returned from the git CLI backend if the arguments provided
 // are not allowed.
-var ErrBadGitCommand = errors.New("bad git command, not allowed")
+var errBadGitCommand = errors.New("bad git command, not allowed")
 
-func commandFailedError(ctx context.Context, err error, cmd wrexec.Cmder, stderr []byte) error {
+func newCommandFailedError(ctx context.Context, err error, cmd wrexec.Cmder, stderr []byte) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	return &CommandFailedError{
+	return &commandFailedError{
 		Inner:      err,
 		args:       cmd.Unwrap().Args,
 		Stderr:     stderr,
@@ -165,47 +218,48 @@ func commandFailedError(ctx context.Context, err error, cmd wrexec.Cmder, stderr
 	}
 }
 
-type CommandFailedError struct {
+type commandFailedError struct {
 	Stderr     []byte
 	ExitStatus int
 	Inner      error
 	args       []string
 }
 
-func (e *CommandFailedError) Unwrap() error {
+func (e *commandFailedError) Unwrap() error {
 	return e.Inner
 }
 
-func (e *CommandFailedError) Error() string {
+func (e *commandFailedError) Error() string {
 	return fmt.Sprintf("git command %v failed with status code %d (output: %q)", e.args, e.ExitStatus, e.Stderr)
 }
 
 type cmdReader struct {
-	io.ReadCloser
-	ctx       context.Context
-	ctxCancel context.CancelFunc
-	subCmd    string
-	cmdStart  time.Time
-	cmd       wrexec.Cmder
-	stderr    *bytes.Buffer
-	logger    log.Logger
-	git       git.GitBackend
-	repoName  api.RepoName
-	mu        sync.Mutex
-	closed    bool
-	tr        trace.Trace
-	err       error
+	stdout         io.Reader
+	ctx            context.Context
+	ctxCancel      context.CancelFunc
+	subCmd         string
+	cmdStart       time.Time
+	cmd            wrexec.Cmder
+	stderr         *bytes.Buffer
+	logger         log.Logger
+	gitDir         common.GitDir
+	repoName       api.RepoName
+	mu             sync.Mutex
+	tr             trace.Trace
+	err            error
+	waitOnce       sync.Once
+	memoryObserver memcmd.Observer
 }
 
 func (rc *cmdReader) Read(p []byte) (n int, err error) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	n, err = rc.ReadCloser.Read(p)
+	n, err = rc.stdout.Read(p)
+	// If the command has finished, we close the stdout pipe and wait on the command
+	// to free any leftover resources. If it errored, this will return the command
+	// error from Read.
 	if err == io.EOF {
-		rc.ReadCloser.Close()
-		rc.closed = true
-
 		if err := rc.waitCmd(); err != nil {
 			return n, err
 		}
@@ -217,36 +271,34 @@ func (rc *cmdReader) Close() error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	if rc.closed {
-		return nil
-	}
-
-	// Close the underlying reader.
-	err := rc.ReadCloser.Close()
-
-	// And finalize the command.
-	return errors.Append(err, rc.waitCmd())
+	return rc.waitCmd()
 }
 
-func (rc *cmdReader) waitCmd() (err error) {
-	defer rc.ctxCancel()
+func (rc *cmdReader) waitCmd() error {
+	// Waiting on a command should only happen once, so
+	// we synchronize all potential calls to Read and Close
+	// here, and memoize the error.
+	rc.waitOnce.Do(func() {
+		rc.err = rc.cmd.Wait()
+		rc.memoryObserver.Stop()
 
-	defer rc.tr.EndWithErr(&err)
-
-	rc.err = rc.cmd.Wait()
-
-	if rc.err != nil {
-		if checkMaybeCorruptRepo(rc.ctx, rc.logger, rc.git, rc.repoName, rc.stderr.String()) {
-			rc.err = common.ErrRepoCorrupted{Reason: rc.stderr.String()}
-		} else {
-			rc.err = commandFailedError(rc.ctx, err, rc.cmd, rc.stderr.Bytes())
+		if rc.err != nil {
+			if checkMaybeCorruptRepo(rc.logger, rc.gitDir, rc.repoName, rc.stderr.String()) {
+				rc.err = common.ErrRepoCorrupted{Reason: rc.stderr.String()}
+			} else {
+				rc.err = newCommandFailedError(rc.ctx, rc.err, rc.cmd, rc.stderr.Bytes())
+			}
 		}
-	}
 
-	rc.trace()
+		rc.trace()
+		rc.tr.EndWithErr(&rc.err)
+		rc.ctxCancel()
+	})
 
 	return rc.err
 }
+
+const highMemoryUsageThreshold = 500 * bytesize.MiB
 
 func (rc *cmdReader) trace() {
 	duration := time.Since(rc.cmdStart)
@@ -254,8 +306,30 @@ func (rc *cmdReader) trace() {
 	execRunning.WithLabelValues(rc.subCmd).Dec()
 	execDuration.WithLabelValues(rc.subCmd).Observe(duration.Seconds())
 
+	processState := rc.cmd.Unwrap().ProcessState
+	var sysUsage syscall.Rusage
+	s, ok := processState.SysUsage().(*syscall.Rusage)
+	if ok {
+		sysUsage = *s
+	}
+
+	memUsage, memoryError := rc.memoryObserver.MaxMemoryUsage()
+	if memoryError != nil {
+		if !(isContextErr(memoryError) && isContextErr(rc.ctx.Err())) {
+			// If the context was canceled, we don't log the error as it's expected.
+			rc.logger.Warn("failed to get max memory usage", log.Error(memoryError))
+		}
+	}
+
 	isSlow := duration > shortGitCommandSlow(rc.cmd.Unwrap().Args)
-	if honey.Enabled() || isSlow {
+
+	isHighMem := memUsage > highMemoryUsageThreshold
+
+	if isHighMem {
+		highMemoryCounter.WithLabelValues(rc.subCmd).Inc()
+	}
+
+	if honey.Enabled() || isSlow || isHighMem {
 		act := actor.FromContext(rc.ctx)
 		ev := honey.NewEvent("gitserver-exec")
 		ev.SetSampleRate(HoneySampleRate(rc.subCmd, act))
@@ -263,18 +337,23 @@ func (rc *cmdReader) trace() {
 		ev.AddField("cmd", rc.subCmd)
 		ev.AddField("args", rc.cmd.Unwrap().Args)
 		ev.AddField("actor", act.UIDString())
-		ev.AddField("duration_ms", duration.Milliseconds())
-		ev.AddField("exit_status", rc.cmd.Unwrap().ProcessState.ExitCode())
+		ev.AddField("exit_status", processState.ExitCode())
 		if rc.err != nil {
 			ev.AddField("error", rc.err.Error())
 		}
 		ev.AddField("cmd_duration_ms", duration.Milliseconds())
-		ev.AddField("user_time", rc.cmd.Unwrap().ProcessState.UserTime())
-		ev.AddField("system_time", rc.cmd.Unwrap().ProcessState.SystemTime())
+		ev.AddField("user_time_ms", processState.UserTime().Milliseconds())
+		ev.AddField("system_time_ms", processState.SystemTime().Milliseconds())
+		ev.AddField("cmd_ru_maxrss_kib", memUsage>>10)
+		ev.AddField("cmd_ru_maxrss_human_readable", humanize.Bytes(uint64(memUsage)))
+		ev.AddField("cmd_ru_minflt", sysUsage.Minflt)
+		ev.AddField("cmd_ru_majflt", sysUsage.Majflt)
+		ev.AddField("cmd_ru_inblock", sysUsage.Inblock)
+		ev.AddField("cmd_ru_oublock", sysUsage.Oublock)
 
 		if traceID := trace.ID(rc.ctx); traceID != "" {
 			ev.AddField("traceID", traceID)
-			ev.AddField("trace", trace.URL(traceID, conf.DefaultClient()))
+			ev.AddField("trace", trace.URL(traceID))
 		}
 
 		if honey.Enabled() {
@@ -284,12 +363,21 @@ func (rc *cmdReader) trace() {
 		if isSlow {
 			rc.logger.Warn("Long exec request", log.Object("ev.Fields", mapToLoggerField(ev.Fields())...))
 		}
+		if isHighMem {
+			rc.logger.Warn("High memory usage exec request", log.Object("ev.Fields", mapToLoggerField(ev.Fields())...))
+		}
 	}
 
-	rc.tr.SetAttributes(attribute.Int("exitCode", rc.cmd.Unwrap().ProcessState.ExitCode()))
+	rc.tr.SetAttributes(attribute.Int("exit_code", processState.ExitCode()))
 	rc.tr.SetAttributes(attribute.Int64("cmd_duration_ms", duration.Milliseconds()))
-	rc.tr.SetAttributes(attribute.Int64("user_time_ms", rc.cmd.Unwrap().ProcessState.UserTime().Milliseconds()))
-	rc.tr.SetAttributes(attribute.Int64("system_time_ms", rc.cmd.Unwrap().ProcessState.SystemTime().Milliseconds()))
+	rc.tr.SetAttributes(attribute.Int64("user_time_ms", processState.UserTime().Milliseconds()))
+	rc.tr.SetAttributes(attribute.Int64("system_time_ms", processState.SystemTime().Milliseconds()))
+	rc.tr.SetAttributes(attribute.Int64("cmd_ru_maxrss_kib", int64(memUsage>>10)))
+	rc.tr.SetAttributes(attribute.String("cmd_ru_maxrss_human_readable", humanize.Bytes(uint64(memUsage))))
+	rc.tr.SetAttributes(attribute.Int64("cmd_ru_minflt", sysUsage.Minflt))
+	rc.tr.SetAttributes(attribute.Int64("cmd_ru_majflt", sysUsage.Majflt))
+	rc.tr.SetAttributes(attribute.Int64("cmd_ru_inblock", sysUsage.Inblock))
+	rc.tr.SetAttributes(attribute.Int64("cmd_ru_oublock", sysUsage.Oublock))
 }
 
 const maxStderrCapture = 1024
@@ -325,7 +413,7 @@ func (l *limitWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func checkMaybeCorruptRepo(ctx context.Context, logger log.Logger, git git.GitBackend, repo api.RepoName, stderr string) bool {
+func checkMaybeCorruptRepo(logger log.Logger, girDir common.GitDir, repo api.RepoName, stderr string) bool {
 	if !stdErrIndicatesCorruption(stderr) {
 		return false
 	}
@@ -335,17 +423,33 @@ func checkMaybeCorruptRepo(ctx context.Context, logger log.Logger, git git.GitBa
 
 	// We set a flag in the config for the cleanup janitor job to fix. The janitor
 	// runs every minute.
-	err := git.Config().Set(ctx, gitConfigMaybeCorrupt, strconv.FormatInt(time.Now().Unix(), 10))
+	// We use a background context here to record corruption events even when the
+	// context has since been cancelled.
+	err := markRepoMaybeCorrupt(girDir)
 	if err != nil {
-		logger.Error("failed to set maybeCorruptRepo config", log.Error(err))
+		logger.Error("failed to set maybeCorruptRepo flag", log.Error(err))
 	}
 
 	return true
 }
 
-// gitConfigMaybeCorrupt is a key we add to git config to signal that a repo may be
-// corrupt on disk.
-const gitConfigMaybeCorrupt = "sourcegraph.maybeCorruptRepo"
+// markRepoMaybeCorrupt ensures a file called sourcegraph.maybeCorruptRepo exists
+// in the repo root, and makes sure the files mtime set to the current time.
+func markRepoMaybeCorrupt(gitDir common.GitDir) error {
+	p := gitDir.Path(RepoMaybeCorruptFlagFilepath)
+
+	f, err := os.Create(p)
+	if err != nil && !os.IsExist(err) {
+		return err
+	}
+	_ = f.Close()
+	return os.Chtimes(p, time.Time{}, time.Now())
+}
+
+// RepoMaybeCorruptFlagFilepath is a magic file we add to the root of a git repo
+// to signal that a repo may be corrupt on disk, when the git stderr output indicates
+// potential corruption.
+const RepoMaybeCorruptFlagFilepath = ".sourcegraph-maybe-corrupt-repo"
 
 var (
 	// objectOrPackFileCorruptionRegex matches stderr lines from git which indicate
@@ -446,4 +550,8 @@ func HoneySampleRate(cmd string, actor *actor.Actor) uint {
 	default:
 		return 8
 	}
+}
+
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

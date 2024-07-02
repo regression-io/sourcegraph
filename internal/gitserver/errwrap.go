@@ -32,13 +32,6 @@ func convertGRPCErrorToGitDomainError(err error) error {
 	for _, detail := range st.Details() {
 		switch payload := detail.(type) {
 
-		case *proto.ExecStatusPayload:
-			return &CommandStatusError{
-				Message:    st.Message(),
-				Stderr:     payload.GetStderr(),
-				StatusCode: payload.GetStatusCode(),
-			}
-
 		case *proto.RepoNotFoundPayload:
 			return &gitdomain.RepoNotExistError{
 				Repo:            api.RepoName(payload.GetRepo()),
@@ -83,11 +76,6 @@ type errorTranslatingClient struct {
 	base proto.GitserverServiceClient
 }
 
-func (r *errorTranslatingClient) RepoDelete(ctx context.Context, in *proto.RepoDeleteRequest, opts ...grpc.CallOption) (*proto.RepoDeleteResponse, error) {
-	res, err := r.base.RepoDelete(ctx, in, opts...)
-	return res, convertGRPCErrorToGitDomainError(err)
-}
-
 func (r *errorTranslatingClient) CreateCommitFromPatchBinary(ctx context.Context, opts ...grpc.CallOption) (proto.GitserverService_CreateCommitFromPatchBinaryClient, error) {
 	cc, err := r.base.CreateCommitFromPatchBinary(ctx, opts...)
 	if err != nil {
@@ -107,23 +95,6 @@ func (r *errorTranslatingCreateCommitFromPatchBinaryClient) Send(m *proto.Create
 
 func (r *errorTranslatingCreateCommitFromPatchBinaryClient) CloseAndRecv() (*proto.CreateCommitFromPatchBinaryResponse, error) {
 	res, err := r.GitserverService_CreateCommitFromPatchBinaryClient.CloseAndRecv()
-	return res, convertGRPCErrorToGitDomainError(err)
-}
-
-func (r *errorTranslatingClient) Exec(ctx context.Context, in *proto.ExecRequest, opts ...grpc.CallOption) (proto.GitserverService_ExecClient, error) {
-	cc, err := r.base.Exec(ctx, in, opts...)
-	if err != nil {
-		return nil, convertGRPCErrorToGitDomainError(err)
-	}
-	return &errorTranslatingExecClient{cc}, nil
-}
-
-type errorTranslatingExecClient struct {
-	proto.GitserverService_ExecClient
-}
-
-func (r *errorTranslatingExecClient) Recv() (*proto.ExecResponse, error) {
-	res, err := r.GitserverService_ExecClient.Recv()
 	return res, convertGRPCErrorToGitDomainError(err)
 }
 
@@ -183,11 +154,6 @@ func (r *errorTranslatingArchiveClient) Recv() (*proto.ArchiveResponse, error) {
 
 func (r *errorTranslatingClient) RepoCloneProgress(ctx context.Context, in *proto.RepoCloneProgressRequest, opts ...grpc.CallOption) (*proto.RepoCloneProgressResponse, error) {
 	res, err := r.base.RepoCloneProgress(ctx, in, opts...)
-	return res, convertGRPCErrorToGitDomainError(err)
-}
-
-func (r *errorTranslatingClient) RepoUpdate(ctx context.Context, in *proto.RepoUpdateRequest, opts ...grpc.CallOption) (*proto.RepoUpdateResponse, error) {
-	res, err := r.base.RepoUpdate(ctx, in, opts...)
 	return res, convertGRPCErrorToGitDomainError(err)
 }
 
@@ -266,6 +232,23 @@ func (r *errorTranslatingClient) ReadFile(ctx context.Context, in *proto.ReadFil
 	return &errorTranslatingReadFileClient{cc}, nil
 }
 
+func (r *errorTranslatingClient) ListRefs(ctx context.Context, in *proto.ListRefsRequest, opts ...grpc.CallOption) (proto.GitserverService_ListRefsClient, error) {
+	cc, err := r.base.ListRefs(ctx, in, opts...)
+	if err != nil {
+		return nil, convertGRPCErrorToGitDomainError(err)
+	}
+	return &errorTranslatingListRefsClient{cc}, nil
+}
+
+type errorTranslatingListRefsClient struct {
+	proto.GitserverService_ListRefsClient
+}
+
+func (r *errorTranslatingListRefsClient) Recv() (*proto.ListRefsResponse, error) {
+	res, err := r.GitserverService_ListRefsClient.Recv()
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
 type errorTranslatingReadFileClient struct {
 	proto.GitserverService_ReadFileClient
 }
@@ -282,6 +265,100 @@ func (r *errorTranslatingClient) GetCommit(ctx context.Context, in *proto.GetCom
 
 func (r *errorTranslatingClient) ResolveRevision(ctx context.Context, in *proto.ResolveRevisionRequest, opts ...grpc.CallOption) (*proto.ResolveRevisionResponse, error) {
 	res, err := r.base.ResolveRevision(ctx, in, opts...)
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) RevAtTime(ctx context.Context, in *proto.RevAtTimeRequest, opts ...grpc.CallOption) (*proto.RevAtTimeResponse, error) {
+	res, err := r.base.RevAtTime(ctx, in, opts...)
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) RawDiff(ctx context.Context, in *proto.RawDiffRequest, opts ...grpc.CallOption) (proto.GitserverService_RawDiffClient, error) {
+	cc, err := r.base.RawDiff(ctx, in, opts...)
+	if err != nil {
+		return nil, convertGRPCErrorToGitDomainError(err)
+	}
+	return &errorTranslatingRawDiffClient{cc}, nil
+}
+
+type errorTranslatingRawDiffClient struct {
+	proto.GitserverService_RawDiffClient
+}
+
+func (r *errorTranslatingRawDiffClient) Recv() (*proto.RawDiffResponse, error) {
+	res, err := r.GitserverService_RawDiffClient.Recv()
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) ContributorCounts(ctx context.Context, in *proto.ContributorCountsRequest, opts ...grpc.CallOption) (*proto.ContributorCountsResponse, error) {
+	res, err := r.base.ContributorCounts(ctx, in, opts...)
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) FirstEverCommit(ctx context.Context, in *proto.FirstEverCommitRequest, opts ...grpc.CallOption) (*proto.FirstEverCommitResponse, error) {
+	res, err := r.base.FirstEverCommit(ctx, in, opts...)
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) BehindAhead(ctx context.Context, in *proto.BehindAheadRequest, opts ...grpc.CallOption) (*proto.BehindAheadResponse, error) {
+	res, err := r.base.BehindAhead(ctx, in, opts...)
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+type errorTranslatingChangedFilesClient struct {
+	proto.GitserverService_ChangedFilesClient
+}
+
+func (r *errorTranslatingChangedFilesClient) Recv() (*proto.ChangedFilesResponse, error) {
+	res, err := r.GitserverService_ChangedFilesClient.Recv()
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+// ChangedFiles implements v1.GitserverServiceClient.
+func (r *errorTranslatingClient) ChangedFiles(ctx context.Context, in *proto.ChangedFilesRequest, opts ...grpc.CallOption) (proto.GitserverService_ChangedFilesClient, error) {
+	cc, err := r.base.ChangedFiles(ctx, in, opts...)
+	if err != nil {
+		return nil, convertGRPCErrorToGitDomainError(err)
+	}
+	return &errorTranslatingChangedFilesClient{cc}, nil
+}
+
+func (r *errorTranslatingClient) Stat(ctx context.Context, in *proto.StatRequest, opts ...grpc.CallOption) (*proto.StatResponse, error) {
+	res, err := r.base.Stat(ctx, in, opts...)
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) ReadDir(ctx context.Context, in *proto.ReadDirRequest, opts ...grpc.CallOption) (proto.GitserverService_ReadDirClient, error) {
+	cc, err := r.base.ReadDir(ctx, in, opts...)
+	if err != nil {
+		return nil, convertGRPCErrorToGitDomainError(err)
+	}
+	return &errorTranslatingReadDirClient{cc}, nil
+}
+
+type errorTranslatingReadDirClient struct {
+	proto.GitserverService_ReadDirClient
+}
+
+func (r *errorTranslatingReadDirClient) Recv() (*proto.ReadDirResponse, error) {
+	res, err := r.GitserverService_ReadDirClient.Recv()
+	return res, convertGRPCErrorToGitDomainError(err)
+}
+
+func (r *errorTranslatingClient) CommitLog(ctx context.Context, in *proto.CommitLogRequest, opts ...grpc.CallOption) (proto.GitserverService_CommitLogClient, error) {
+	cc, err := r.base.CommitLog(ctx, in, opts...)
+	if err != nil {
+		return nil, convertGRPCErrorToGitDomainError(err)
+	}
+	return &errorTranslatingCommitLogClient{cc}, nil
+}
+
+type errorTranslatingCommitLogClient struct {
+	proto.GitserverService_CommitLogClient
+}
+
+func (r *errorTranslatingCommitLogClient) Recv() (*proto.CommitLogResponse, error) {
+	res, err := r.GitserverService_CommitLogClient.Recv()
 	return res, convertGRPCErrorToGitDomainError(err)
 }
 

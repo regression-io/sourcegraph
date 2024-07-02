@@ -19,10 +19,11 @@ import (
 type key int
 
 var jobsKey key
+var hasRun bool
 
 type backgroundJobs struct {
-	wg    sync.WaitGroup
-	count atomic.Int32
+	wg                sync.WaitGroup
+	stillRunningCount atomic.Int32
 
 	verbose bool
 	output  chan string
@@ -50,7 +51,7 @@ func loadFromContext(ctx context.Context) *backgroundJobs {
 func Run(ctx context.Context, job func(ctx context.Context, backgroundOutput *std.Output)) {
 	jobs := loadFromContext(ctx)
 	jobs.wg.Add(1)
-	jobs.count.Add(1)
+	jobs.stillRunningCount.Add(1)
 
 	b := new(bytes.Buffer)
 	out := std.NewOutput(b, jobs.verbose)
@@ -61,7 +62,7 @@ func Run(ctx context.Context, job func(ctx context.Context, backgroundOutput *st
 		// Execute job
 		job(jobCtx, out)
 		// Signal the completion of this job
-		jobs.count.Dec()
+		jobs.stillRunningCount.Dec()
 		// If the job provides background output, collect it to be rendered on
 		// command exit.
 		jobs.output <- strings.TrimSpace(b.String())
@@ -73,17 +74,21 @@ func Run(ctx context.Context, job func(ctx context.Context, backgroundOutput *st
 // outputs from completed jobs. This should only be called when user command execution is
 // complete, and we are now waiting for background tasks to complete.
 func Wait(ctx context.Context, out *std.Output) {
+	if hasRun {
+		return
+	}
+	hasRun = true
 	jobs := loadFromContext(ctx)
-	count := int(jobs.count.Load())
+	pendingCount := int(jobs.stillRunningCount.Load())
 
 	_, span := analytics.StartSpan(ctx, "background_wait", "",
-		trace.WithAttributes(attribute.Int("jobs", count)))
+		trace.WithAttributes(attribute.Int("jobs", pendingCount)))
 	defer span.End()
 
 	firstResultWithOutput := true
-	if jobs.verbose && count > 0 {
+	if jobs.verbose && pendingCount > 0 {
 		out.WriteLine(output.Styledf(output.StylePending, "Waiting for %d remaining background %s to complete...",
-			count, pluralize("job", "jobs", count)))
+			pendingCount, pluralize("job", "jobs", pendingCount)))
 	}
 	go func() {
 		// Stream job output as they complete
@@ -102,7 +107,7 @@ func Wait(ctx context.Context, out *std.Output) {
 
 	// Done!
 	close(jobs.output)
-	if jobs.verbose {
+	if jobs.verbose && pendingCount > 0 {
 		out.WriteLine(output.Line(output.EmojiSuccess, output.StyleSuccess, "Background jobs done!"))
 	}
 	span.Succeeded()

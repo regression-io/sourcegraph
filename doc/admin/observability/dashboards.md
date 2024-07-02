@@ -2336,7 +2336,7 @@ sum by (op)(increase(src_codeintel_lockfiles_errors_total{job=~"^(frontend|sourc
 
 #### frontend: gitserver_client_total
 
-<p class="subtitle">Aggregate graphql operations every 5m</p>
+<p class="subtitle">Aggregate client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -2358,7 +2358,7 @@ sum(increase(src_gitserver_client_total{job=~"^(frontend|sourcegraph-frontend).*
 
 #### frontend: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">Aggregate successful graphql operation duration distribution over 5m</p>
+<p class="subtitle">Aggregate successful client operation duration distribution over 5m</p>
 
 This panel has no related alerts.
 
@@ -2380,7 +2380,7 @@ sum  by (le)(rate(src_gitserver_client_duration_seconds_bucket{job=~"^(frontend|
 
 #### frontend: gitserver_client_errors_total
 
-<p class="subtitle">Aggregate graphql operation errors every 5m</p>
+<p class="subtitle">Aggregate client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -2402,7 +2402,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^(frontend|sourcegraph-fron
 
 #### frontend: gitserver_client_error_rate
 
-<p class="subtitle">Aggregate graphql operation error rate over 5m</p>
+<p class="subtitle">Aggregate client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -2424,7 +2424,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^(frontend|sourcegraph-fron
 
 #### frontend: gitserver_client_total
 
-<p class="subtitle">Graphql operations every 5m</p>
+<p class="subtitle">Client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -2446,7 +2446,7 @@ sum by (op,scope)(increase(src_gitserver_client_total{job=~"^(frontend|sourcegra
 
 #### frontend: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">99th percentile successful graphql operation duration over 5m</p>
+<p class="subtitle">99th percentile successful client operation duration over 5m</p>
 
 This panel has no related alerts.
 
@@ -2468,7 +2468,7 @@ histogram_quantile(0.99, sum  by (le,op,scope)(rate(src_gitserver_client_duratio
 
 #### frontend: gitserver_client_errors_total
 
-<p class="subtitle">Graphql operation errors every 5m</p>
+<p class="subtitle">Client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -2490,7 +2490,7 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^(frontend|so
 
 #### frontend: gitserver_client_error_rate
 
-<p class="subtitle">Graphql operation error rate over 5m</p>
+<p class="subtitle">Client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -6330,7 +6330,7 @@ sum by (container_label_io_kubernetes_pod_name) (rate(container_cpu_usage_second
 
 <p class="subtitle">Disk space remaining</p>
 
-Indicates disk space remaining for each gitserver instance, which is used to determine when to start evicting least-used repository clones from disk (default 10%, configured by `SRC_REPOS_DESIRED_PERCENT_FREE`).
+Indicates disk space remaining for each gitserver instance. When disk space is low, gitserver may experience slowdowns or fails to fetch repositories.
 
 Refer to the [alerts reference](./alerts.md#gitserver-disk-space-remaining) for 2 alerts related to this panel.
 
@@ -6345,6 +6345,37 @@ Query:
 
 ```
 (src_gitserver_disk_space_available{instance=~`${shard:regex}`} / src_gitserver_disk_space_total{instance=~`${shard:regex}`}) * 100
+```
+</details>
+
+<br />
+
+#### gitserver: high_memory_git_commands
+
+<p class="subtitle">Number of git commands that exceeded the threshold for high memory usage</p>
+
+This graph tracks the number of git subcommands that gitserver ran that exceeded the threshold for high memory usage.
+This graph in itself is not an alert, but it is used to learn about the memory usage of gitserver.
+
+If gitserver frequently serves requests where the status code is KILLED, this graph might help to correlate that
+with the high memory usage.
+
+This graph spiking is not a problem necessarily. But when subcommands or the whole gitserver service are getting
+OOM killed and this graph shows spikes, increasing the memory might be useful.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100021` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sort_desc(sum(sum_over_time(src_gitserver_exec_high_memory_usage_count{instance=~`${shard:regex}`}[2m])) by (cmd))
 ```
 </details>
 
@@ -6404,7 +6435,7 @@ sum by (cmd) (rate(src_gitserver_exec_duration_seconds_count{instance=~`${shard:
 
 
 
-Refer to the [alerts reference](./alerts.md#gitserver-echo-command-duration-test) for 2 alerts related to this panel.
+Refer to the [alerts reference](./alerts.md#gitserver-echo-command-duration-test) for 1 alert related to this panel.
 
 To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100040` on your Sourcegraph instance.
 
@@ -6491,6 +6522,32 @@ Query:
 
 ```
 src_gitserver_repo_count
+```
+</details>
+
+<br />
+
+#### gitserver: src_gitserver_client_concurrent_requests
+
+<p class="subtitle">Number of concurrent requests running against gitserver client</p>
+
+This metric is only for informational purposes. It indicates the current number of concurrently running requests by process against gitserver gRPC.
+
+It does not indicate any problems with the instance, but can give a good indication of load spikes or request throttling.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100052` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (job, instance) (src_gitserver_client_concurrent_requests)
 ```
 </details>
 
@@ -6812,30 +6869,6 @@ sum by (job_name) (rate(src_gitserver_janitor_job_duration_seconds_count{instanc
 
 <br />
 
-#### gitserver: repos_removed
-
-<p class="subtitle">Repositories removed due to disk pressure</p>
-
-Repositories removed due to disk pressure
-
-This panel has no related alerts.
-
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100230` on your Sourcegraph instance.
-
-<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
-
-<details>
-<summary>Technical details</summary>
-
-Query:
-
-```
-sum by (instance) (rate(src_gitserver_repos_removed_disk_pressure{instance=~`${shard:regex}`}[5m]))
-```
-</details>
-
-<br />
-
 #### gitserver: non_existent_repos_removed
 
 <p class="subtitle">Repositories removed because they are not defined in the DB</p>
@@ -6844,7 +6877,7 @@ Repositoriess removed because they are not defined in the DB
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100240` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100230` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -6868,7 +6901,7 @@ the rate of successful sg maintenance jobs and the reason why they were triggere
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100250` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100240` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -6892,7 +6925,7 @@ the rate of successful git prune jobs over 1h and whether they were skipped
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100260` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100250` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -7794,7 +7827,7 @@ sum by (op)(increase(src_gitserver_backend_errors_total{job=~"^gitserver.*"}[5m]
 
 #### gitserver: gitserver_client_total
 
-<p class="subtitle">Aggregate graphql operations every 5m</p>
+<p class="subtitle">Aggregate client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -7816,7 +7849,7 @@ sum(increase(src_gitserver_client_total{job=~"^*.*"}[5m]))
 
 #### gitserver: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">Aggregate successful graphql operation duration distribution over 5m</p>
+<p class="subtitle">Aggregate successful client operation duration distribution over 5m</p>
 
 This panel has no related alerts.
 
@@ -7838,7 +7871,7 @@ sum  by (le)(rate(src_gitserver_client_duration_seconds_bucket{job=~"^*.*"}[5m])
 
 #### gitserver: gitserver_client_errors_total
 
-<p class="subtitle">Aggregate graphql operation errors every 5m</p>
+<p class="subtitle">Aggregate client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -7860,7 +7893,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^*.*"}[5m]))
 
 #### gitserver: gitserver_client_error_rate
 
-<p class="subtitle">Aggregate graphql operation error rate over 5m</p>
+<p class="subtitle">Aggregate client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -7882,7 +7915,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^*.*"}[5m])) / (sum(increas
 
 #### gitserver: gitserver_client_total
 
-<p class="subtitle">Graphql operations every 5m</p>
+<p class="subtitle">Client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -7904,7 +7937,7 @@ sum by (op,scope)(increase(src_gitserver_client_total{job=~"^*.*"}[5m]))
 
 #### gitserver: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">99th percentile successful graphql operation duration over 5m</p>
+<p class="subtitle">99th percentile successful client operation duration over 5m</p>
 
 This panel has no related alerts.
 
@@ -7926,7 +7959,7 @@ histogram_quantile(0.99, sum  by (le,op,scope)(rate(src_gitserver_client_duratio
 
 #### gitserver: gitserver_client_errors_total
 
-<p class="subtitle">Graphql operation errors every 5m</p>
+<p class="subtitle">Client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -7948,7 +7981,7 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^*.*"}[5m]))
 
 #### gitserver: gitserver_client_error_rate
 
-<p class="subtitle">Graphql operation error rate over 5m</p>
+<p class="subtitle">Client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -7968,6 +8001,184 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^*.*"}[5m])) 
 
 <br />
 
+### Git Server: Gitserver: Gitserver Repository Service Client
+
+#### gitserver: gitserver_repositoryservice_client_total
+
+<p class="subtitle">Aggregate client operations every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100900` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(increase(src_gitserver_repositoryservice_client_total{job=~"^*.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_99th_percentile_duration
+
+<p class="subtitle">Aggregate successful client operation duration distribution over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100901` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum  by (le)(rate(src_gitserver_repositoryservice_client_duration_seconds_bucket{job=~"^*.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_errors_total
+
+<p class="subtitle">Aggregate client operation errors every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100902` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^*.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_error_rate
+
+<p class="subtitle">Aggregate client operation error rate over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100903` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^*.*"}[5m])) / (sum(increase(src_gitserver_repositoryservice_client_total{job=~"^*.*"}[5m])) + sum(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^*.*"}[5m]))) * 100
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_total
+
+<p class="subtitle">Client operations every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100910` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (op,scope)(increase(src_gitserver_repositoryservice_client_total{job=~"^*.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_99th_percentile_duration
+
+<p class="subtitle">99th percentile successful client operation duration over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100911` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.99, sum  by (le,op,scope)(rate(src_gitserver_repositoryservice_client_duration_seconds_bucket{job=~"^*.*"}[5m])))
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_errors_total
+
+<p class="subtitle">Client operation errors every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100912` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (op,scope)(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^*.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### gitserver: gitserver_repositoryservice_client_error_rate
+
+<p class="subtitle">Client operation error rate over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100913` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (op,scope)(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^*.*"}[5m])) / (sum by (op,scope)(increase(src_gitserver_repositoryservice_client_total{job=~"^*.*"}[5m])) + sum by (op,scope)(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^*.*"}[5m]))) * 100
+```
+</details>
+
+<br />
+
 ### Git Server: Repos disk I/O metrics
 
 #### gitserver: repos_disk_reads_sec
@@ -7980,7 +8191,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100900` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101000` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8006,7 +8217,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100901` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101001` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8032,7 +8243,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100910` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101010` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8058,7 +8269,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100911` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101011` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8084,7 +8295,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100920` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101020` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8110,7 +8321,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100921` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101021` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8136,7 +8347,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100930` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101030` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8162,7 +8373,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100931` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101031` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8188,7 +8399,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100940` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101040` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8214,7 +8425,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100941` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101041` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8240,7 +8451,7 @@ Note: Disk statistics are per _device_, not per _service_. In certain environmen
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=100950` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101050` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8256,9 +8467,9 @@ Query:
 
 <br />
 
-### Git Server: Gitserver GRPC server metrics
+### Git Server: Git Service GRPC server metrics
 
-#### gitserver: gitserver_grpc_request_rate_all_methods
+#### gitserver: git_service_grpc_request_rate_all_methods
 
 <p class="subtitle">Request rate across all methods over 2m</p>
 
@@ -8266,7 +8477,7 @@ The number of gRPC requests received per second across all methods, aggregated a
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101000` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101100` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8282,7 +8493,7 @@ sum(rate(grpc_server_started_total{instance=~`${shard:regex}`,grpc_service=~"git
 
 <br />
 
-#### gitserver: gitserver_grpc_request_rate_per_method
+#### gitserver: git_service_grpc_request_rate_per_method
 
 <p class="subtitle">Request rate per-method over 2m</p>
 
@@ -8290,7 +8501,7 @@ The number of gRPC requests received per second broken out per method, aggregate
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101001` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101101` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8300,13 +8511,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10100
 Query:
 
 ```
-sum(rate(grpc_server_started_total{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method)
+sum(rate(grpc_server_started_total{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method)
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_error_percentage_all_methods
+#### gitserver: git_service_error_percentage_all_methods
 
 <p class="subtitle">Error percentage across all methods over 2m</p>
 
@@ -8314,7 +8525,7 @@ The percentage of gRPC requests that fail across all methods, aggregated across 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101010` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101110` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8330,7 +8541,7 @@ Query:
 
 <br />
 
-#### gitserver: gitserver_grpc_error_percentage_per_method
+#### gitserver: git_service_grpc_error_percentage_per_method
 
 <p class="subtitle">Error percentage per-method over 2m</p>
 
@@ -8338,7 +8549,7 @@ The percentage of gRPC requests that fail per method, aggregated across all inst
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101011` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101111` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8348,13 +8559,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10101
 Query:
 
 ```
-(100.0 * ( (sum(rate(grpc_server_handled_total{grpc_method=~`${gitserver_method:regex}`,grpc_code!="OK",instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method)) / (sum(rate(grpc_server_handled_total{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method)) ))
+(100.0 * ( (sum(rate(grpc_server_handled_total{grpc_method=~`${git_service_method:regex}`,grpc_code!="OK",instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method)) / (sum(rate(grpc_server_handled_total{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method)) ))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p99_response_time_per_method
+#### gitserver: git_service_p99_response_time_per_method
 
 <p class="subtitle">99th percentile response time per method over 2m</p>
 
@@ -8362,7 +8573,7 @@ The 99th percentile response time per method, aggregated across all instances.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101020` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101120` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8372,13 +8583,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10102
 Query:
 
 ```
-histogram_quantile(0.99, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.99, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p90_response_time_per_method
+#### gitserver: git_service_p90_response_time_per_method
 
 <p class="subtitle">90th percentile response time per method over 2m</p>
 
@@ -8386,7 +8597,7 @@ The 90th percentile response time per method, aggregated across all instances.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101021` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101121` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8396,13 +8607,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10102
 Query:
 
 ```
-histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p75_response_time_per_method
+#### gitserver: git_service_p75_response_time_per_method
 
 <p class="subtitle">75th percentile response time per method over 2m</p>
 
@@ -8410,7 +8621,7 @@ The 75th percentile response time per method, aggregated across all instances.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101022` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101122` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8420,13 +8631,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10102
 Query:
 
 ```
-histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p99_9_response_size_per_method
+#### gitserver: git_service_p99_9_response_size_per_method
 
 <p class="subtitle">99.9th percentile total response size per method over 2m</p>
 
@@ -8434,7 +8645,7 @@ The 99.9th percentile total per-RPC response size per method, aggregated across 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101030` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101130` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8444,13 +8655,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10103
 Query:
 
 ```
-histogram_quantile(0.999, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.999, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p90_response_size_per_method
+#### gitserver: git_service_p90_response_size_per_method
 
 <p class="subtitle">90th percentile total response size per method over 2m</p>
 
@@ -8458,7 +8669,7 @@ The 90th percentile total per-RPC response size per method, aggregated across al
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101031` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101131` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8468,13 +8679,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10103
 Query:
 
 ```
-histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p75_response_size_per_method
+#### gitserver: git_service_p75_response_size_per_method
 
 <p class="subtitle">75th percentile total response size per method over 2m</p>
 
@@ -8482,7 +8693,7 @@ The 75th percentile total per-RPC response size per method, aggregated across al
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101032` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101132` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8492,13 +8703,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10103
 Query:
 
 ```
-histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p99_9_invididual_sent_message_size_per_method
+#### gitserver: git_service_p99_9_invididual_sent_message_size_per_method
 
 <p class="subtitle">99.9th percentile individual sent message size per method over 2m</p>
 
@@ -8506,7 +8717,7 @@ The 99.9th percentile size of every individual protocol buffer size sent by the 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101040` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101140` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8516,13 +8727,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10104
 Query:
 
 ```
-histogram_quantile(0.999, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.999, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p90_invididual_sent_message_size_per_method
+#### gitserver: git_service_p90_invididual_sent_message_size_per_method
 
 <p class="subtitle">90th percentile individual sent message size per method over 2m</p>
 
@@ -8530,7 +8741,7 @@ The 90th percentile size of every individual protocol buffer size sent by the se
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101041` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101141` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8540,13 +8751,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10104
 Query:
 
 ```
-histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_p75_invididual_sent_message_size_per_method
+#### gitserver: git_service_p75_invididual_sent_message_size_per_method
 
 <p class="subtitle">75th percentile individual sent message size per method over 2m</p>
 
@@ -8554,7 +8765,7 @@ The 75th percentile size of every individual protocol buffer size sent by the se
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101042` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101142` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8564,13 +8775,13 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10104
 Query:
 
 ```
-histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
+histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_grpc_response_stream_message_count_per_method
+#### gitserver: git_service_grpc_response_stream_message_count_per_method
 
 <p class="subtitle">Average streaming response message count per-method over 2m</p>
 
@@ -8578,7 +8789,7 @@ The average number of response messages sent during a streaming RPC method, brok
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101050` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101150` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8594,7 +8805,7 @@ Query:
 
 <br />
 
-#### gitserver: gitserver_grpc_all_codes_per_method
+#### gitserver: git_service_grpc_all_codes_per_method
 
 <p class="subtitle">Response codes rate per-method over 2m</p>
 
@@ -8602,7 +8813,7 @@ The rate of all generated gRPC response codes per method, aggregated across all 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101060` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101160` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8612,23 +8823,23 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10106
 Query:
 
 ```
-sum(rate(grpc_server_handled_total{grpc_method=~`${gitserver_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method, grpc_code)
+sum(rate(grpc_server_handled_total{grpc_method=~`${git_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverService"}[2m])) by (grpc_method, grpc_code)
 ```
 </details>
 
 <br />
 
-### Git Server: Gitserver GRPC "internal error" metrics
+### Git Server: Git Service GRPC "internal error" metrics
 
-#### gitserver: gitserver_grpc_clients_error_percentage_all_methods
+#### gitserver: git_service_grpc_clients_error_percentage_all_methods
 
 <p class="subtitle">Client baseline error percentage across all methods over 2m</p>
 
-The percentage of gRPC requests that fail across all methods (regardless of whether or not there was an internal error), aggregated across all "gitserver" clients.
+The percentage of gRPC requests that fail across all methods (regardless of whether or not there was an internal error), aggregated across all "git_service" clients.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101100` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101200` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8644,15 +8855,15 @@ Query:
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_error_percentage_per_method
+#### gitserver: git_service_grpc_clients_error_percentage_per_method
 
 <p class="subtitle">Client baseline error percentage per-method over 2m</p>
 
-The percentage of gRPC requests that fail per method (regardless of whether or not there was an internal error), aggregated across all "gitserver" clients.
+The percentage of gRPC requests that fail per method (regardless of whether or not there was an internal error), aggregated across all "git_service" clients.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101101` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101201` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8662,21 +8873,21 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10110
 Query:
 
 ```
-(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}",grpc_code!="OK"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}"}[2m])) by (grpc_method))))))
+(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}",grpc_code!="OK"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}"}[2m])) by (grpc_method))))))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_all_codes_per_method
+#### gitserver: git_service_grpc_clients_all_codes_per_method
 
 <p class="subtitle">Client baseline response codes rate per-method over 2m</p>
 
-The rate of all generated gRPC response codes per method (regardless of whether or not there was an internal error), aggregated across all "gitserver" clients.
+The rate of all generated gRPC response codes per method (regardless of whether or not there was an internal error), aggregated across all "git_service" clients.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101102` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101202` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8686,19 +8897,19 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10110
 Query:
 
 ```
-(sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}"}[2m])) by (grpc_method, grpc_code))
+(sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}"}[2m])) by (grpc_method, grpc_code))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_internal_error_percentage_all_methods
+#### gitserver: git_service_grpc_clients_internal_error_percentage_all_methods
 
 <p class="subtitle">Client-observed gRPC internal error percentage across all methods over 2m</p>
 
-The percentage of gRPC requests that appear to fail due to gRPC internal errors across all methods, aggregated across all "gitserver" clients.
+The percentage of gRPC requests that appear to fail due to gRPC internal errors across all methods, aggregated across all "git_service" clients.
 
-**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "gitserver" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
+**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "git_service" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
 
 When debugging, knowing that a particular error comes from the grpc-go library itself (an `internal error`) as opposed to `normal` application code can be helpful when trying to fix it.
 
@@ -8706,7 +8917,7 @@ When debugging, knowing that a particular error comes from the grpc-go library i
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101110` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101210` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8722,13 +8933,13 @@ Query:
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_internal_error_percentage_per_method
+#### gitserver: git_service_grpc_clients_internal_error_percentage_per_method
 
 <p class="subtitle">Client-observed gRPC internal error percentage per-method over 2m</p>
 
-The percentage of gRPC requests that appear to fail to due to gRPC internal errors per method, aggregated across all "gitserver" clients.
+The percentage of gRPC requests that appear to fail to due to gRPC internal errors per method, aggregated across all "git_service" clients.
 
-**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "gitserver" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
+**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "git_service" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
 
 When debugging, knowing that a particular error comes from the grpc-go library itself (an `internal error`) as opposed to `normal` application code can be helpful when trying to fix it.
 
@@ -8736,7 +8947,7 @@ When debugging, knowing that a particular error comes from the grpc-go library i
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101111` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101211` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8746,19 +8957,19 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10111
 Query:
 
 ```
-(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}",grpc_code!="OK",is_internal_error="true"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}"}[2m])) by (grpc_method))))))
+(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}",grpc_code!="OK",is_internal_error="true"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}"}[2m])) by (grpc_method))))))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_internal_error_all_codes_per_method
+#### gitserver: git_service_grpc_clients_internal_error_all_codes_per_method
 
 <p class="subtitle">Client-observed gRPC internal error response code rate per-method over 2m</p>
 
-The rate of gRPC internal-error response codes per method, aggregated across all "gitserver" clients.
+The rate of gRPC internal-error response codes per method, aggregated across all "git_service" clients.
 
-**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "gitserver" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
+**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "git_service" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
 
 When debugging, knowing that a particular error comes from the grpc-go library itself (an `internal error`) as opposed to `normal` application code can be helpful when trying to fix it.
 
@@ -8766,7 +8977,7 @@ When debugging, knowing that a particular error comes from the grpc-go library i
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101112` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101212` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8776,23 +8987,23 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10111
 Query:
 
 ```
-(sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",is_internal_error="true",grpc_method=~"${gitserver_method:regex}"}[2m])) by (grpc_method, grpc_code))
+(sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverService",is_internal_error="true",grpc_method=~"${git_service_method:regex}"}[2m])) by (grpc_method, grpc_code))
 ```
 </details>
 
 <br />
 
-### Git Server: Gitserver GRPC retry metrics
+### Git Server: Git Service GRPC retry metrics
 
-#### gitserver: gitserver_grpc_clients_retry_percentage_across_all_methods
+#### gitserver: git_service_grpc_clients_retry_percentage_across_all_methods
 
 <p class="subtitle">Client retry percentage across all methods over 2m</p>
 
-The percentage of gRPC requests that were retried across all methods, aggregated across all "gitserver" clients.
+The percentage of gRPC requests that were retried across all methods, aggregated across all "git_service" clients.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101200` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101300` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8808,15 +9019,15 @@ Query:
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_retry_percentage_per_method
+#### gitserver: git_service_grpc_clients_retry_percentage_per_method
 
 <p class="subtitle">Client retry percentage per-method over 2m</p>
 
-The percentage of gRPC requests that were retried aggregated across all "gitserver" clients, broken out per method.
+The percentage of gRPC requests that were retried aggregated across all "git_service" clients, broken out per method.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101201` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101301` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8826,21 +9037,21 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10120
 Query:
 
 ```
-(100.0 * ((((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverService",is_retried="true",grpc_method=~"${gitserver_method:regex}"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}"}[2m])) by (grpc_method))))))
+(100.0 * ((((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverService",is_retried="true",grpc_method=~"${git_service_method:regex}"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}"}[2m])) by (grpc_method))))))
 ```
 </details>
 
 <br />
 
-#### gitserver: gitserver_grpc_clients_retry_count_per_method
+#### gitserver: git_service_grpc_clients_retry_count_per_method
 
 <p class="subtitle">Client retry count per-method over 2m</p>
 
-The count of gRPC requests that were retried aggregated across all "gitserver" clients, broken out per method
+The count of gRPC requests that were retried aggregated across all "git_service" clients, broken out per method
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101202` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101302` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -8850,7 +9061,607 @@ To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=10120
 Query:
 
 ```
-(sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${gitserver_method:regex}",is_retried="true"}[2m])) by (grpc_method))
+(sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverService",grpc_method=~"${git_service_method:regex}",is_retried="true"}[2m])) by (grpc_method))
+```
+</details>
+
+<br />
+
+### Git Server: Repository Service GRPC server metrics
+
+#### gitserver: repository_service_grpc_request_rate_all_methods
+
+<p class="subtitle">Request rate across all methods over 2m</p>
+
+The number of gRPC requests received per second across all methods, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101400` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(rate(grpc_server_started_total{instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m]))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_request_rate_per_method
+
+<p class="subtitle">Request rate per-method over 2m</p>
+
+The number of gRPC requests received per second broken out per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101401` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(rate(grpc_server_started_total{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])) by (grpc_method)
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_error_percentage_all_methods
+
+<p class="subtitle">Error percentage across all methods over 2m</p>
+
+The percentage of gRPC requests that fail across all methods, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101410` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ( (sum(rate(grpc_server_handled_total{grpc_code!="OK",instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m]))) / (sum(rate(grpc_server_handled_total{instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m]))) ))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_error_percentage_per_method
+
+<p class="subtitle">Error percentage per-method over 2m</p>
+
+The percentage of gRPC requests that fail per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101411` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ( (sum(rate(grpc_server_handled_total{grpc_method=~`${repository_service_method:regex}`,grpc_code!="OK",instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])) by (grpc_method)) / (sum(rate(grpc_server_handled_total{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])) by (grpc_method)) ))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p99_response_time_per_method
+
+<p class="subtitle">99th percentile response time per method over 2m</p>
+
+The 99th percentile response time per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101420` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.99, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p90_response_time_per_method
+
+<p class="subtitle">90th percentile response time per method over 2m</p>
+
+The 90th percentile response time per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101421` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p75_response_time_per_method
+
+<p class="subtitle">75th percentile response time per method over 2m</p>
+
+The 75th percentile response time per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101422` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(grpc_server_handling_seconds_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p99_9_response_size_per_method
+
+<p class="subtitle">99.9th percentile total response size per method over 2m</p>
+
+The 99.9th percentile total per-RPC response size per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101430` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.999, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p90_response_size_per_method
+
+<p class="subtitle">90th percentile total response size per method over 2m</p>
+
+The 90th percentile total per-RPC response size per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101431` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p75_response_size_per_method
+
+<p class="subtitle">75th percentile total response size per method over 2m</p>
+
+The 75th percentile total per-RPC response size per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101432` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_bytes_per_rpc_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p99_9_invididual_sent_message_size_per_method
+
+<p class="subtitle">99.9th percentile individual sent message size per method over 2m</p>
+
+The 99.9th percentile size of every individual protocol buffer size sent by the service per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101440` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.999, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p90_invididual_sent_message_size_per_method
+
+<p class="subtitle">90th percentile individual sent message size per method over 2m</p>
+
+The 90th percentile size of every individual protocol buffer size sent by the service per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101441` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.90, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_p75_invididual_sent_message_size_per_method
+
+<p class="subtitle">75th percentile individual sent message size per method over 2m</p>
+
+The 75th percentile size of every individual protocol buffer size sent by the service per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101442` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.75, sum by (le, name, grpc_method)(rate(src_grpc_server_sent_individual_message_size_bytes_per_rpc_bucket{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_response_stream_message_count_per_method
+
+<p class="subtitle">Average streaming response message count per-method over 2m</p>
+
+The average number of response messages sent during a streaming RPC method, broken out per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101450` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+((sum(rate(grpc_server_msg_sent_total{grpc_type="server_stream",instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])) by (grpc_method))/(sum(rate(grpc_server_started_total{grpc_type="server_stream",instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])) by (grpc_method)))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_all_codes_per_method
+
+<p class="subtitle">Response codes rate per-method over 2m</p>
+
+The rate of all generated gRPC response codes per method, aggregated across all instances.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101460` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(rate(grpc_server_handled_total{grpc_method=~`${repository_service_method:regex}`,instance=~`${shard:regex}`,grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])) by (grpc_method, grpc_code)
+```
+</details>
+
+<br />
+
+### Git Server: Repository Service GRPC "internal error" metrics
+
+#### gitserver: repository_service_grpc_clients_error_percentage_all_methods
+
+<p class="subtitle">Client baseline error percentage across all methods over 2m</p>
+
+The percentage of gRPC requests that fail across all methods (regardless of whether or not there was an internal error), aggregated across all "repository_service" clients.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101500` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_code!="OK"}[2m])))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))))))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_error_percentage_per_method
+
+<p class="subtitle">Client baseline error percentage per-method over 2m</p>
+
+The percentage of gRPC requests that fail per method (regardless of whether or not there was an internal error), aggregated across all "repository_service" clients.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101501` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}",grpc_code!="OK"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}"}[2m])) by (grpc_method))))))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_all_codes_per_method
+
+<p class="subtitle">Client baseline response codes rate per-method over 2m</p>
+
+The rate of all generated gRPC response codes per method (regardless of whether or not there was an internal error), aggregated across all "repository_service" clients.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101502` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}"}[2m])) by (grpc_method, grpc_code))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_internal_error_percentage_all_methods
+
+<p class="subtitle">Client-observed gRPC internal error percentage across all methods over 2m</p>
+
+The percentage of gRPC requests that appear to fail due to gRPC internal errors across all methods, aggregated across all "repository_service" clients.
+
+**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "repository_service" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
+
+When debugging, knowing that a particular error comes from the grpc-go library itself (an `internal error`) as opposed to `normal` application code can be helpful when trying to fix it.
+
+**Note**: Internal errors are detected via a very coarse heuristic (seeing if the error starts with `grpc:`, etc.). Because of this, it`s possible that some gRPC-specific issues might not be categorized as internal errors.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101510` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_code!="OK",is_internal_error="true"}[2m])))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))))))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_internal_error_percentage_per_method
+
+<p class="subtitle">Client-observed gRPC internal error percentage per-method over 2m</p>
+
+The percentage of gRPC requests that appear to fail to due to gRPC internal errors per method, aggregated across all "repository_service" clients.
+
+**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "repository_service" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
+
+When debugging, knowing that a particular error comes from the grpc-go library itself (an `internal error`) as opposed to `normal` application code can be helpful when trying to fix it.
+
+**Note**: Internal errors are detected via a very coarse heuristic (seeing if the error starts with `grpc:`, etc.). Because of this, it`s possible that some gRPC-specific issues might not be categorized as internal errors.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101511` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ((((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}",grpc_code!="OK",is_internal_error="true"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}"}[2m])) by (grpc_method))))))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_internal_error_all_codes_per_method
+
+<p class="subtitle">Client-observed gRPC internal error response code rate per-method over 2m</p>
+
+The rate of gRPC internal-error response codes per method, aggregated across all "repository_service" clients.
+
+**Note**: Internal errors are ones that appear to originate from the https://github.com/grpc/grpc-go library itself, rather than from any user-written application code. These errors can be caused by a variety of issues, and can originate from either the code-generated "repository_service" gRPC client or gRPC server. These errors might be solvable by adjusting the gRPC configuration, or they might indicate a bug from Sourcegraph`s use of gRPC.
+
+When debugging, knowing that a particular error comes from the grpc-go library itself (an `internal error`) as opposed to `normal` application code can be helpful when trying to fix it.
+
+**Note**: Internal errors are detected via a very coarse heuristic (seeing if the error starts with `grpc:`, etc.). Because of this, it`s possible that some gRPC-specific issues might not be categorized as internal errors.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101512` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(sum(rate(src_grpc_method_status{grpc_service=~"gitserver.v1.GitserverRepositoryService",is_internal_error="true",grpc_method=~"${repository_service_method:regex}"}[2m])) by (grpc_method, grpc_code))
+```
+</details>
+
+<br />
+
+### Git Server: Repository Service GRPC retry metrics
+
+#### gitserver: repository_service_grpc_clients_retry_percentage_across_all_methods
+
+<p class="subtitle">Client retry percentage across all methods over 2m</p>
+
+The percentage of gRPC requests that were retried across all methods, aggregated across all "repository_service" clients.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101600` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ((((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverRepositoryService",is_retried="true"}[2m])))) / ((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverRepositoryService"}[2m])))))))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_retry_percentage_per_method
+
+<p class="subtitle">Client retry percentage per-method over 2m</p>
+
+The percentage of gRPC requests that were retried aggregated across all "repository_service" clients, broken out per method.
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101601` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(100.0 * ((((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverRepositoryService",is_retried="true",grpc_method=~"${repository_service_method:regex}"}[2m])) by (grpc_method))) / ((sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}"}[2m])) by (grpc_method))))))
+```
+</details>
+
+<br />
+
+#### gitserver: repository_service_grpc_clients_retry_count_per_method
+
+<p class="subtitle">Client retry count per-method over 2m</p>
+
+The count of gRPC requests that were retried aggregated across all "repository_service" clients, broken out per method
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101602` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+(sum(rate(src_grpc_client_retry_attempts_total{grpc_service=~"gitserver.v1.GitserverRepositoryService",grpc_method=~"${repository_service_method:regex}",is_retried="true"}[2m])) by (grpc_method))
 ```
 </details>
 
@@ -8866,7 +9677,7 @@ The duration since the configuration client used by the "gitserver" service last
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101300` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101700` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Infrastructure Org team](https://handbook.sourcegraph.com/departments/engineering/infrastructure).*</sub>
 
@@ -8888,7 +9699,7 @@ src_conf_client_time_since_last_successful_update_seconds{job=~`.*gitserver`,ins
 
 Refer to the [alerts reference](./alerts.md#gitserver-gitserver-site-configuration-duration-since-last-successful-update-by-instance) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101301` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101701` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Infrastructure Org team](https://handbook.sourcegraph.com/departments/engineering/infrastructure).*</sub>
 
@@ -8912,7 +9723,7 @@ max(max_over_time(src_conf_client_time_since_last_successful_update_seconds{job=
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101400` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101800` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -8934,7 +9745,7 @@ sum(increase(src_codeintel_coursier_total{op!="RunCommand",job=~"^gitserver.*"}[
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101401` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101801` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -8956,7 +9767,7 @@ sum  by (le)(rate(src_codeintel_coursier_duration_seconds_bucket{op!="RunCommand
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101402` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101802` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -8978,7 +9789,7 @@ sum(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"^gitserv
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101403` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101803` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9000,7 +9811,7 @@ sum(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"^gitserv
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101410` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101810` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9022,7 +9833,7 @@ sum by (op)(increase(src_codeintel_coursier_total{op!="RunCommand",job=~"^gitser
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101411` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101811` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9044,7 +9855,7 @@ histogram_quantile(0.99, sum  by (le,op)(rate(src_codeintel_coursier_duration_se
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101412` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101812` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9066,7 +9877,7 @@ sum by (op)(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101413` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101813` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9090,7 +9901,7 @@ sum by (op)(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101500` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101900` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9112,7 +9923,7 @@ sum(increase(src_codeintel_npm_total{op!="RunCommand",job=~"^gitserver.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101501` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101901` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9134,7 +9945,7 @@ sum  by (le)(rate(src_codeintel_npm_duration_seconds_bucket{op!="RunCommand",job
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101502` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101902` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9156,7 +9967,7 @@ sum(increase(src_codeintel_npm_errors_total{op!="RunCommand",job=~"^gitserver.*"
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101503` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101903` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9178,7 +9989,7 @@ sum(increase(src_codeintel_npm_errors_total{op!="RunCommand",job=~"^gitserver.*"
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101510` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101910` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9200,7 +10011,7 @@ sum by (op)(increase(src_codeintel_npm_total{op!="RunCommand",job=~"^gitserver.*
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101511` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101911` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9222,7 +10033,7 @@ histogram_quantile(0.99, sum  by (le,op)(rate(src_codeintel_npm_duration_seconds
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101512` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101912` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9244,7 +10055,7 @@ sum by (op)(increase(src_codeintel_npm_errors_total{op!="RunCommand",job=~"^gits
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101513` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101913` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -9270,7 +10081,7 @@ The number of healthy HTTP requests per second to internal HTTP api
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101600` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102000` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9294,7 +10105,7 @@ The number of unhealthy HTTP requests per second to internal HTTP api
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101601` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102001` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9318,7 +10129,7 @@ The number of HTTP requests per second by code
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101602` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102002` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9342,7 +10153,7 @@ The 95th percentile duration by route when the status code is 200
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101610` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102010` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9366,7 +10177,7 @@ The 95th percentile duration by route when the status code is not 200
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101611` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102011` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9390,7 +10201,7 @@ histogram_quantile(0.95, sum(rate(src_http_request_duration_seconds_bucket{app="
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101700` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102100` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9412,7 +10223,7 @@ sum by (app_name, db_name) (src_pgsql_conns_max_open{app_name="gitserver"})
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101701` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102101` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9434,7 +10245,7 @@ sum by (app_name, db_name) (src_pgsql_conns_open{app_name="gitserver"})
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101710` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102110` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9456,7 +10267,7 @@ sum by (app_name, db_name) (src_pgsql_conns_in_use{app_name="gitserver"})
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101711` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102111` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9478,7 +10289,7 @@ sum by (app_name, db_name) (src_pgsql_conns_idle{app_name="gitserver"})
 
 Refer to the [alerts reference](./alerts.md#gitserver-mean-blocked-seconds-per-conn-request) for 2 alerts related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101720` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102120` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9500,7 +10311,7 @@ sum by (app_name, db_name) (increase(src_pgsql_conns_blocked_seconds{app_name="g
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101730` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102130` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9522,7 +10333,7 @@ sum by (app_name, db_name) (increase(src_pgsql_conns_closed_max_idle{app_name="g
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101731` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102131` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9544,7 +10355,7 @@ sum by (app_name, db_name) (increase(src_pgsql_conns_closed_max_lifetime{app_nam
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101732` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102132` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9578,7 +10389,7 @@ value change independent of deployment events (such as an upgrade), it could ind
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101800` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102200` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9600,7 +10411,7 @@ count by(name) ((time() - container_last_seen{name=~"^gitserver.*"}) > 60)
 
 Refer to the [alerts reference](./alerts.md#gitserver-container-cpu-usage) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101801` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102201` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9622,7 +10433,7 @@ cadvisor_container_cpu_usage_percentage_total{name=~"^gitserver.*"}
 
 Refer to the [alerts reference](./alerts.md#gitserver-container-memory-usage) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101802` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102202` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9647,7 +10458,7 @@ When extremely high, this can indicate a resource usage problem, or can cause pr
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101803` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102203` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9671,7 +10482,7 @@ sum by(name) (rate(container_fs_reads_total{name=~"^gitserver.*"}[1h]) + rate(co
 
 Refer to the [alerts reference](./alerts.md#gitserver-provisioning-container-cpu-usage-long-term) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101900` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102300` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9695,7 +10506,7 @@ Git Server is expected to use up all the memory it is provided.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101901` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102301` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9717,7 +10528,7 @@ max_over_time(cadvisor_container_memory_usage_percentage_total{name=~"^gitserver
 
 Refer to the [alerts reference](./alerts.md#gitserver-provisioning-container-cpu-usage-short-term) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101910` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102310` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9741,7 +10552,7 @@ Git Server is expected to use up all the memory it is provided.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101911` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102311` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9766,7 +10577,7 @@ When it occurs frequently, it is an indicator of underprovisioning.
 
 Refer to the [alerts reference](./alerts.md#gitserver-container-oomkill-events-total) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=101912` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102312` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9792,7 +10603,7 @@ A high value here indicates a possible goroutine leak.
 
 Refer to the [alerts reference](./alerts.md#gitserver-go-goroutines) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102000` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102400` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9814,7 +10625,7 @@ max by(instance) (go_goroutines{job=~".*gitserver"})
 
 Refer to the [alerts reference](./alerts.md#gitserver-go-gc-duration-seconds) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102001` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102401` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -9838,7 +10649,7 @@ max by(instance) (go_gc_duration_seconds{job=~".*gitserver"})
 
 Refer to the [alerts reference](./alerts.md#gitserver-pods-available-percentage) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102100` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/gitserver/gitserver?viewPanel=102500` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -13904,7 +14715,7 @@ max(rate(src_repo_perms_syncer_schedule_repos_total[1m]))
 
 #### worker: gitserver_client_total
 
-<p class="subtitle">Aggregate graphql operations every 5m</p>
+<p class="subtitle">Aggregate client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -13926,7 +14737,7 @@ sum(increase(src_gitserver_client_total{job=~"^worker.*"}[5m]))
 
 #### worker: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">Aggregate successful graphql operation duration distribution over 5m</p>
+<p class="subtitle">Aggregate successful client operation duration distribution over 5m</p>
 
 This panel has no related alerts.
 
@@ -13948,7 +14759,7 @@ sum  by (le)(rate(src_gitserver_client_duration_seconds_bucket{job=~"^worker.*"}
 
 #### worker: gitserver_client_errors_total
 
-<p class="subtitle">Aggregate graphql operation errors every 5m</p>
+<p class="subtitle">Aggregate client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -13970,7 +14781,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^worker.*"}[5m]))
 
 #### worker: gitserver_client_error_rate
 
-<p class="subtitle">Aggregate graphql operation error rate over 5m</p>
+<p class="subtitle">Aggregate client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -13992,7 +14803,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^worker.*"}[5m])) / (sum(in
 
 #### worker: gitserver_client_total
 
-<p class="subtitle">Graphql operations every 5m</p>
+<p class="subtitle">Client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -14014,7 +14825,7 @@ sum by (op,scope)(increase(src_gitserver_client_total{job=~"^worker.*"}[5m]))
 
 #### worker: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">99th percentile successful graphql operation duration over 5m</p>
+<p class="subtitle">99th percentile successful client operation duration over 5m</p>
 
 This panel has no related alerts.
 
@@ -14036,7 +14847,7 @@ histogram_quantile(0.99, sum  by (le,op,scope)(rate(src_gitserver_client_duratio
 
 #### worker: gitserver_client_errors_total
 
-<p class="subtitle">Graphql operation errors every 5m</p>
+<p class="subtitle">Client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -14058,7 +14869,7 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^worker.*"}[5
 
 #### worker: gitserver_client_error_rate
 
-<p class="subtitle">Graphql operation error rate over 5m</p>
+<p class="subtitle">Client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -17164,7 +17975,7 @@ sum by (urn) (rate(src_internal_rate_limit_wait_duration_count{failed="true"}[5m
 
 #### repo-updater: gitserver_client_total
 
-<p class="subtitle">Aggregate graphql operations every 5m</p>
+<p class="subtitle">Aggregate client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -17186,7 +17997,7 @@ sum(increase(src_gitserver_client_total{job=~"^repo-updater.*"}[5m]))
 
 #### repo-updater: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">Aggregate successful graphql operation duration distribution over 5m</p>
+<p class="subtitle">Aggregate successful client operation duration distribution over 5m</p>
 
 This panel has no related alerts.
 
@@ -17208,7 +18019,7 @@ sum  by (le)(rate(src_gitserver_client_duration_seconds_bucket{job=~"^repo-updat
 
 #### repo-updater: gitserver_client_errors_total
 
-<p class="subtitle">Aggregate graphql operation errors every 5m</p>
+<p class="subtitle">Aggregate client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -17230,7 +18041,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^repo-updater.*"}[5m]))
 
 #### repo-updater: gitserver_client_error_rate
 
-<p class="subtitle">Aggregate graphql operation error rate over 5m</p>
+<p class="subtitle">Aggregate client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -17252,7 +18063,7 @@ sum(increase(src_gitserver_client_errors_total{job=~"^repo-updater.*"}[5m])) / (
 
 #### repo-updater: gitserver_client_total
 
-<p class="subtitle">Graphql operations every 5m</p>
+<p class="subtitle">Client operations every 5m</p>
 
 This panel has no related alerts.
 
@@ -17274,7 +18085,7 @@ sum by (op,scope)(increase(src_gitserver_client_total{job=~"^repo-updater.*"}[5m
 
 #### repo-updater: gitserver_client_99th_percentile_duration
 
-<p class="subtitle">99th percentile successful graphql operation duration over 5m</p>
+<p class="subtitle">99th percentile successful client operation duration over 5m</p>
 
 This panel has no related alerts.
 
@@ -17296,7 +18107,7 @@ histogram_quantile(0.99, sum  by (le,op,scope)(rate(src_gitserver_client_duratio
 
 #### repo-updater: gitserver_client_errors_total
 
-<p class="subtitle">Graphql operation errors every 5m</p>
+<p class="subtitle">Client operation errors every 5m</p>
 
 This panel has no related alerts.
 
@@ -17318,7 +18129,7 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^repo-updater
 
 #### repo-updater: gitserver_client_error_rate
 
-<p class="subtitle">Graphql operation error rate over 5m</p>
+<p class="subtitle">Client operation error rate over 5m</p>
 
 This panel has no related alerts.
 
@@ -17338,6 +18149,184 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^repo-updater
 
 <br />
 
+### Repo Updater: Gitserver: Gitserver Repository Service Client
+
+#### repo-updater: gitserver_repositoryservice_client_total
+
+<p class="subtitle">Aggregate client operations every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100300` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(increase(src_gitserver_repositoryservice_client_total{job=~"^repo-updater.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_99th_percentile_duration
+
+<p class="subtitle">Aggregate successful client operation duration distribution over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100301` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum  by (le)(rate(src_gitserver_repositoryservice_client_duration_seconds_bucket{job=~"^repo-updater.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_errors_total
+
+<p class="subtitle">Aggregate client operation errors every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100302` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^repo-updater.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_error_rate
+
+<p class="subtitle">Aggregate client operation error rate over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100303` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^repo-updater.*"}[5m])) / (sum(increase(src_gitserver_repositoryservice_client_total{job=~"^repo-updater.*"}[5m])) + sum(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^repo-updater.*"}[5m]))) * 100
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_total
+
+<p class="subtitle">Client operations every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100310` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (op,scope)(increase(src_gitserver_repositoryservice_client_total{job=~"^repo-updater.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_99th_percentile_duration
+
+<p class="subtitle">99th percentile successful client operation duration over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100311` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+histogram_quantile(0.99, sum  by (le,op,scope)(rate(src_gitserver_repositoryservice_client_duration_seconds_bucket{job=~"^repo-updater.*"}[5m])))
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_errors_total
+
+<p class="subtitle">Client operation errors every 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100312` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (op,scope)(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^repo-updater.*"}[5m]))
+```
+</details>
+
+<br />
+
+#### repo-updater: gitserver_repositoryservice_client_error_rate
+
+<p class="subtitle">Client operation error rate over 5m</p>
+
+This panel has no related alerts.
+
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100313` on your Sourcegraph instance.
+
+<sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
+
+<details>
+<summary>Technical details</summary>
+
+Query:
+
+```
+sum by (op,scope)(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^repo-updater.*"}[5m])) / (sum by (op,scope)(increase(src_gitserver_repositoryservice_client_total{job=~"^repo-updater.*"}[5m])) + sum by (op,scope)(increase(src_gitserver_repositoryservice_client_errors_total{job=~"^repo-updater.*"}[5m]))) * 100
+```
+</details>
+
+<br />
+
 ### Repo Updater: Batches: dbstore stats
 
 #### repo-updater: batches_dbstore_total
@@ -17346,7 +18335,7 @@ sum by (op,scope)(increase(src_gitserver_client_errors_total{job=~"^repo-updater
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100300` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100400` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17368,7 +18357,7 @@ sum(increase(src_batches_dbstore_total{job=~"^repo-updater.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100301` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100401` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17390,7 +18379,7 @@ sum  by (le)(rate(src_batches_dbstore_duration_seconds_bucket{job=~"^repo-update
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100302` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100402` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17412,7 +18401,7 @@ sum(increase(src_batches_dbstore_errors_total{job=~"^repo-updater.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100303` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100403` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17434,7 +18423,7 @@ sum(increase(src_batches_dbstore_errors_total{job=~"^repo-updater.*"}[5m])) / (s
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100310` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100410` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17456,7 +18445,7 @@ sum by (op)(increase(src_batches_dbstore_total{job=~"^repo-updater.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100311` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100411` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17478,7 +18467,7 @@ histogram_quantile(0.99, sum  by (le,op)(rate(src_batches_dbstore_duration_secon
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100312` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100412` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17500,7 +18489,7 @@ sum by (op)(increase(src_batches_dbstore_errors_total{job=~"^repo-updater.*"}[5m
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100313` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100413` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17524,7 +18513,7 @@ sum by (op)(increase(src_batches_dbstore_errors_total{job=~"^repo-updater.*"}[5m
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100400` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100500` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17546,7 +18535,7 @@ sum(increase(src_batches_service_total{job=~"^repo-updater.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100401` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100501` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17568,7 +18557,7 @@ sum  by (le)(rate(src_batches_service_duration_seconds_bucket{job=~"^repo-update
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100402` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100502` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17590,7 +18579,7 @@ sum(increase(src_batches_service_errors_total{job=~"^repo-updater.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100403` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100503` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17612,7 +18601,7 @@ sum(increase(src_batches_service_errors_total{job=~"^repo-updater.*"}[5m])) / (s
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100410` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100510` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17634,7 +18623,7 @@ sum by (op)(increase(src_batches_service_total{job=~"^repo-updater.*"}[5m]))
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100411` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100511` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17656,7 +18645,7 @@ histogram_quantile(0.99, sum  by (le,op)(rate(src_batches_service_duration_secon
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100412` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100512` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17678,7 +18667,7 @@ sum by (op)(increase(src_batches_service_errors_total{job=~"^repo-updater.*"}[5m
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100413` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100513` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code Search team](https://handbook.sourcegraph.com/departments/engineering/teams/code-search).*</sub>
 
@@ -17702,7 +18691,7 @@ sum by (op)(increase(src_batches_service_errors_total{job=~"^repo-updater.*"}[5m
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100500` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100600` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17724,7 +18713,7 @@ sum(increase(src_codeintel_coursier_total{op!="RunCommand",job=~"^repo-updater.*
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100501` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100601` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17746,7 +18735,7 @@ sum  by (le)(rate(src_codeintel_coursier_duration_seconds_bucket{op!="RunCommand
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100502` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100602` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17768,7 +18757,7 @@ sum(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"^repo-up
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100503` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100603` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17790,7 +18779,7 @@ sum(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"^repo-up
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100510` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100610` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17812,7 +18801,7 @@ sum by (op)(increase(src_codeintel_coursier_total{op!="RunCommand",job=~"^repo-u
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100511` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100611` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17834,7 +18823,7 @@ histogram_quantile(0.99, sum  by (le,op)(rate(src_codeintel_coursier_duration_se
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100512` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100612` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17856,7 +18845,7 @@ sum by (op)(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100513` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100613` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17880,7 +18869,7 @@ sum by (op)(increase(src_codeintel_coursier_errors_total{op!="RunCommand",job=~"
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100600` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100700` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17902,7 +18891,7 @@ sum(increase(src_codeintel_npm_total{op!="RunCommand",job=~"^repo-updater.*"}[5m
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100601` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100701` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17924,7 +18913,7 @@ sum  by (le)(rate(src_codeintel_npm_duration_seconds_bucket{op!="RunCommand",job
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100602` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100702` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17946,7 +18935,7 @@ sum(increase(src_codeintel_npm_errors_total{op!="RunCommand",job=~"^repo-updater
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100603` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100703` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17968,7 +18957,7 @@ sum(increase(src_codeintel_npm_errors_total{op!="RunCommand",job=~"^repo-updater
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100610` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100710` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -17990,7 +18979,7 @@ sum by (op)(increase(src_codeintel_npm_total{op!="RunCommand",job=~"^repo-update
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100611` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100711` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -18012,7 +19001,7 @@ histogram_quantile(0.99, sum  by (le,op)(rate(src_codeintel_npm_duration_seconds
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100612` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100712` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -18034,7 +19023,7 @@ sum by (op)(increase(src_codeintel_npm_errors_total{op!="RunCommand",job=~"^repo
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100613` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100713` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Code intelligence team](https://handbook.sourcegraph.com/departments/engineering/teams/code-intelligence).*</sub>
 
@@ -18060,7 +19049,7 @@ The number of gRPC requests received per second across all methods, aggregated a
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100700` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100800` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18084,7 +19073,7 @@ The number of gRPC requests received per second broken out per method, aggregate
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100701` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100801` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18108,7 +19097,7 @@ The percentage of gRPC requests that fail across all methods, aggregated across 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100710` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100810` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18132,7 +19121,7 @@ The percentage of gRPC requests that fail per method, aggregated across all inst
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100711` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100811` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18156,7 +19145,7 @@ The 99th percentile response time per method, aggregated across all instances.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100720` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100820` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18180,7 +19169,7 @@ The 90th percentile response time per method, aggregated across all instances.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100721` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100821` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18204,7 +19193,7 @@ The 75th percentile response time per method, aggregated across all instances.
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100722` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100822` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18228,7 +19217,7 @@ The 99.9th percentile total per-RPC response size per method, aggregated across 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100730` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100830` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18252,7 +19241,7 @@ The 90th percentile total per-RPC response size per method, aggregated across al
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100731` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100831` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18276,7 +19265,7 @@ The 75th percentile total per-RPC response size per method, aggregated across al
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100732` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100832` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18300,7 +19289,7 @@ The 99.9th percentile size of every individual protocol buffer size sent by the 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100740` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100840` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18324,7 +19313,7 @@ The 90th percentile size of every individual protocol buffer size sent by the se
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100741` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100841` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18348,7 +19337,7 @@ The 75th percentile size of every individual protocol buffer size sent by the se
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100742` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100842` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18372,7 +19361,7 @@ The average number of response messages sent during a streaming RPC method, brok
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100750` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100850` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18396,7 +19385,7 @@ The rate of all generated gRPC response codes per method, aggregated across all 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100760` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100860` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18422,7 +19411,7 @@ The percentage of gRPC requests that fail across all methods (regardless of whet
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100800` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100900` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18446,7 +19435,7 @@ The percentage of gRPC requests that fail per method (regardless of whether or n
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100801` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100901` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18470,7 +19459,7 @@ The rate of all generated gRPC response codes per method (regardless of whether 
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100802` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100902` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18500,7 +19489,7 @@ When debugging, knowing that a particular error comes from the grpc-go library i
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100810` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100910` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18530,7 +19519,7 @@ When debugging, knowing that a particular error comes from the grpc-go library i
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100811` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100911` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18560,7 +19549,7 @@ When debugging, knowing that a particular error comes from the grpc-go library i
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100812` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100912` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18586,7 +19575,7 @@ The percentage of gRPC requests that were retried across all methods, aggregated
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100900` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101000` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18610,7 +19599,7 @@ The percentage of gRPC requests that were retried aggregated across all "repo_up
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100901` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101001` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18634,7 +19623,7 @@ The count of gRPC requests that were retried aggregated across all "repo_updater
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=100902` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101002` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18660,7 +19649,7 @@ The duration since the configuration client used by the "repo_updater" service l
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101000` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101100` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Infrastructure Org team](https://handbook.sourcegraph.com/departments/engineering/infrastructure).*</sub>
 
@@ -18682,7 +19671,7 @@ src_conf_client_time_since_last_successful_update_seconds{job=~`.*repo-updater`,
 
 Refer to the [alerts reference](./alerts.md#repo-updater-repo-updater-site-configuration-duration-since-last-successful-update-by-instance) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101001` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101101` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Infrastructure Org team](https://handbook.sourcegraph.com/departments/engineering/infrastructure).*</sub>
 
@@ -18708,7 +19697,7 @@ The number of healthy HTTP requests per second to internal HTTP api
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101100` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101200` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18732,7 +19721,7 @@ The number of unhealthy HTTP requests per second to internal HTTP api
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101101` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101201` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18756,7 +19745,7 @@ The number of HTTP requests per second by code
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101102` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101202` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18780,7 +19769,7 @@ The 95th percentile duration by route when the status code is 200
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101110` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101210` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18804,7 +19793,7 @@ The 95th percentile duration by route when the status code is not 200
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101111` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101211` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18828,7 +19817,7 @@ histogram_quantile(0.95, sum(rate(src_http_request_duration_seconds_bucket{app="
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101200` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101300` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18850,7 +19839,7 @@ sum by (app_name, db_name) (src_pgsql_conns_max_open{app_name="repo-updater"})
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101201` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101301` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18872,7 +19861,7 @@ sum by (app_name, db_name) (src_pgsql_conns_open{app_name="repo-updater"})
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101210` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101310` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18894,7 +19883,7 @@ sum by (app_name, db_name) (src_pgsql_conns_in_use{app_name="repo-updater"})
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101211` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101311` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18916,7 +19905,7 @@ sum by (app_name, db_name) (src_pgsql_conns_idle{app_name="repo-updater"})
 
 Refer to the [alerts reference](./alerts.md#repo-updater-mean-blocked-seconds-per-conn-request) for 2 alerts related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101220` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101320` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18938,7 +19927,7 @@ sum by (app_name, db_name) (increase(src_pgsql_conns_blocked_seconds{app_name="r
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101230` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101330` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18960,7 +19949,7 @@ sum by (app_name, db_name) (increase(src_pgsql_conns_closed_max_idle{app_name="r
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101231` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101331` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -18982,7 +19971,7 @@ sum by (app_name, db_name) (increase(src_pgsql_conns_closed_max_lifetime{app_nam
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101232` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101332` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19016,7 +20005,7 @@ value change independent of deployment events (such as an upgrade), it could ind
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101300` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101400` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19038,7 +20027,7 @@ count by(name) ((time() - container_last_seen{name=~"^repo-updater.*"}) > 60)
 
 Refer to the [alerts reference](./alerts.md#repo-updater-container-cpu-usage) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101301` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101401` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19060,7 +20049,7 @@ cadvisor_container_cpu_usage_percentage_total{name=~"^repo-updater.*"}
 
 Refer to the [alerts reference](./alerts.md#repo-updater-container-memory-usage) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101302` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101402` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19085,7 +20074,7 @@ When extremely high, this can indicate a resource usage problem, or can cause pr
 
 This panel has no related alerts.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101303` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101403` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19109,7 +20098,7 @@ sum by(name) (rate(container_fs_reads_total{name=~"^repo-updater.*"}[1h]) + rate
 
 Refer to the [alerts reference](./alerts.md#repo-updater-provisioning-container-cpu-usage-long-term) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101400` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101500` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19131,7 +20120,7 @@ quantile_over_time(0.9, cadvisor_container_cpu_usage_percentage_total{name=~"^re
 
 Refer to the [alerts reference](./alerts.md#repo-updater-provisioning-container-memory-usage-long-term) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101401` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101501` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19153,7 +20142,7 @@ max_over_time(cadvisor_container_memory_usage_percentage_total{name=~"^repo-upda
 
 Refer to the [alerts reference](./alerts.md#repo-updater-provisioning-container-cpu-usage-short-term) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101410` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101510` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19175,7 +20164,7 @@ max_over_time(cadvisor_container_cpu_usage_percentage_total{name=~"^repo-updater
 
 Refer to the [alerts reference](./alerts.md#repo-updater-provisioning-container-memory-usage-short-term) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101411` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101511` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19200,7 +20189,7 @@ When it occurs frequently, it is an indicator of underprovisioning.
 
 Refer to the [alerts reference](./alerts.md#repo-updater-container-oomkill-events-total) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101412` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101512` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19226,7 +20215,7 @@ A high value here indicates a possible goroutine leak.
 
 Refer to the [alerts reference](./alerts.md#repo-updater-go-goroutines) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101500` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101600` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19248,7 +20237,7 @@ max by(instance) (go_goroutines{job=~".*repo-updater"})
 
 Refer to the [alerts reference](./alerts.md#repo-updater-go-gc-duration-seconds) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101501` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101601` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 
@@ -19272,7 +20261,7 @@ max by(instance) (go_gc_duration_seconds{job=~".*repo-updater"})
 
 Refer to the [alerts reference](./alerts.md#repo-updater-pods-available-percentage) for 1 alert related to this panel.
 
-To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101600` on your Sourcegraph instance.
+To see this panel, visit `/-/debug/grafana/d/repo-updater/repo-updater?viewPanel=101700` on your Sourcegraph instance.
 
 <sub>*Managed by the [Sourcegraph Source team](https://handbook.sourcegraph.com/departments/engineering/teams/source).*</sub>
 

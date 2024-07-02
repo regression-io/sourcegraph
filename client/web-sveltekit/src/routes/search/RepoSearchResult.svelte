@@ -1,8 +1,6 @@
 <svelte:options immutable />
 
 <script lang="ts">
-    import { mdiArchive, mdiLock, mdiSourceFork } from '@mdi/js'
-
     import { highlightRanges } from '$lib/dom'
     import { featureFlag } from '$lib/featureflags'
     import Icon from '$lib/Icon.svelte'
@@ -32,19 +30,19 @@
         <RepoRev repoName={result.repository} {rev} highlights={repositoryMatches} />
         {#if result.fork}
             <span class="info">
-                <Icon aria-label="Forked repository" svgPath={mdiSourceFork} inline />
+                <Icon aria-label="Forked repository" icon={ILucideGitFork} inline />
                 <small>Fork</small>
             </span>
         {/if}
         {#if result.archived}
             <span class="info">
-                <Icon aria-label="Archived repository" svgPath={mdiArchive} inline />
+                <Icon aria-label="Archived repository" icon={ILucideArchive} inline />
                 <small>Archive</small>
             </span>
         {/if}
         {#if result.private}
             <span class="info">
-                <Icon aria-label="Private repository" svgPath={mdiLock} inline />
+                <Icon aria-label="Private repository" icon={ILucideLock} inline />
                 <small>Private</small>
             </span>
         {/if}
@@ -57,14 +55,14 @@
     {#if description}
         <!-- #key is needed here to recreate the paragraph because use:highlightRanges changes the DOM -->
         {#key description}
-            <p class="p-2 m-0" use:highlightRanges={{ ranges: descriptionMatches }}>
+            <p use:highlightRanges={{ ranges: descriptionMatches }}>
                 {limitDescription(description)}
             </p>
         {/key}
     {/if}<!--
         Intentional weird comment to avoid adding an empty line to the body
     -->{#if badges.length > 0}
-        <ul class="p-2">
+        <ul>
             {#each badges as badge}
                 <li>
                     <Badge variant="outlineSecondary">
@@ -81,6 +79,7 @@
 <style lang="scss">
     ul {
         margin: 0;
+        padding: 0.5rem;
         list-style: none;
         display: flex;
         gap: 0.5rem;
@@ -91,7 +90,14 @@
         }
     }
 
+    p {
+        padding: 0.5rem;
+        margin: 0;
+    }
+
     .info {
+        --icon-color: currentColor;
+
         border-left: 1px solid var(--border-color);
         margin-left: 0.5rem;
         padding-left: 0.5rem;

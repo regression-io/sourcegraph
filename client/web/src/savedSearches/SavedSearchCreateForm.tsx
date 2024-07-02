@@ -1,21 +1,22 @@
 import React, { type FC } from 'react'
 
-import { useLocation, useNavigate, type NavigateFunction, type Location } from 'react-router-dom'
-import { concat, Subject, Subscription } from 'rxjs'
+import { useLocation, useNavigate, type Location, type NavigateFunction } from 'react-router-dom'
+import { Subject, Subscription, concat } from 'rxjs'
 import { catchError, map, switchMap } from 'rxjs/operators'
 import type { Omit } from 'utility-types'
 
-import { type ErrorLike, isErrorLike, asError } from '@sourcegraph/common'
+import { asError, isErrorLike, type ErrorLike } from '@sourcegraph/common'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 import { screenReaderAnnounce } from '@sourcegraph/wildcard'
 
 import type { AuthenticatedUser } from '../auth'
 import type { NamespaceProps } from '../namespaces'
 import { createSavedSearch } from '../search/backend'
-import { eventLogger } from '../tracking/eventLogger'
 
-import { type SavedQueryFields, SavedSearchForm } from './SavedSearchForm'
+import { SavedSearchForm, type SavedQueryFields } from './SavedSearchForm'
 
-interface Props extends NamespaceProps {
+interface Props extends NamespaceProps, TelemetryV2Props {
     authenticatedUser: AuthenticatedUser | null
     isSourcegraphDotCom: boolean
     location: Location
@@ -69,7 +70,11 @@ class InnerSavedSearchCreateForm extends React.Component<Props, State> {
                 .subscribe(([createdOrError, queryDescription]) => {
                     this.setState({ createdOrError })
                     if (createdOrError === true) {
-                        eventLogger.log('SavedSearchCreated')
+                        EVENT_LOGGER.log('SavedSearchCreated')
+                        this.props.telemetryRecorder.recordEvent(
+                            `${this.props.namespace.__typename.toLowerCase()}.savedSearch`,
+                            'create'
+                        )
                         screenReaderAnnounce(`Saved ${queryDescription} search`)
                         this.props.navigate(`${this.props.namespace.url}/searches`, {
                             state: { description: queryDescription },
@@ -77,7 +82,11 @@ class InnerSavedSearchCreateForm extends React.Component<Props, State> {
                     }
                 })
         )
-        eventLogger.logViewEvent('NewSavedSearchPage')
+        EVENT_LOGGER.logViewEvent('NewSavedSearchPage')
+        this.props.telemetryRecorder.recordEvent(
+            `${this.props.namespace.__typename.toLowerCase()}.savedSearches.new`,
+            'view'
+        )
     }
 
     public render(): JSX.Element | null {

@@ -1,27 +1,24 @@
 import { error, redirect } from '@sveltejs/kit'
 
-import { browser } from '$app/environment'
 import { isErrorLike, parseJSONCOrError } from '$lib/common'
 import { getGraphQLClient } from '$lib/graphql'
+import type { SettingsEdit } from '$lib/graphql-types'
 import type { Settings } from '$lib/shared'
 
 import type { LayoutLoad } from './$types'
-import { Init, EvaluatedFeatureFlagsQuery, GlobalAlertsSiteFlags, DisableSveltePrototype } from './layout.gql'
+import {
+    Init,
+    EvaluatedFeatureFlagsQuery,
+    GlobalAlertsSiteFlags,
+    DisableSveltePrototype,
+    EditSettings,
+    LatestSettingsQuery,
+} from './layout.gql'
+import { getMainNavigationEntries, Mode } from './navigation'
 
 // Disable server side rendering for the whole app
 export const ssr = false
 export const prerender = false
-
-if (browser) {
-    // Necessary to make authenticated GrqphQL requests work
-    // No idea why TS picks up Mocha.SuiteFunction for this
-    // @ts-ignore
-    window.context = {
-        xhrHeaders: {
-            'X-Requested-With': 'Sourcegraph',
-        },
-    }
-}
 
 export const load: LayoutLoad = async ({ fetch }) => {
     const client = getGraphQLClient()
@@ -50,10 +47,20 @@ export const load: LayoutLoad = async ({ fetch }) => {
     }
 
     return {
+        navigationEntries: getMainNavigationEntries(
+            (window.context.sourcegraphDotComMode ? Mode.DOTCOM : Mode.ENTERPRISE) |
+                (window.context.codyEnabledOnInstance ? Mode.CODY_INSTANCE_ENABLED : 0) |
+                (window.context.codyEnabledForCurrentUser ? Mode.CODY_USER_ENABLED : 0) |
+                (window.context.batchChangesEnabled ? Mode.BATCH_CHANGES_ENABLED : 0) |
+                (window.context.codeInsightsEnabled ? Mode.CODE_INSIGHTS_ENABLED : 0) |
+                (result.data.currentUser ? Mode.AUTHENTICATED : Mode.UNAUTHENTICATED)
+        ),
+
+        // User data
         user: result.data.currentUser,
-        // Initial user settings
         settings,
         featureFlags: result.data.evaluatedFeatureFlags,
+
         globalSiteAlerts: globalSiteAlerts.then(result => result.data?.site),
         fetchEvaluatedFeatureFlags: async () => {
             const result = await client.query(EvaluatedFeatureFlagsQuery, {}, { requestPolicy: 'network-only', fetch })
@@ -70,6 +77,33 @@ export const load: LayoutLoad = async ({ fetch }) => {
             )
             if (!mutationResult.data || mutationResult.error) {
                 throw new Error(`Failed to disable svelte feature flags: ${result.error}`)
+            }
+        },
+        updateUserSetting: async (edit: SettingsEdit): Promise<void> => {
+            // We have to set network-only here, because otherwise the client will reuse a previously cached value
+            const latestSettings = await client.query(LatestSettingsQuery, {}, { requestPolicy: 'network-only', fetch })
+            if (!latestSettings.data || latestSettings.error) {
+                throw new Error(`Failed to fetch latest settings during editor update: ${latestSettings.error}`)
+            }
+            const userSetting = latestSettings.data.viewerSettings.subjects.find(s => s.__typename === 'User')
+            if (!userSetting) {
+                throw new Error('Failed to find user settings subject')
+            }
+            const lastID = userSetting.latestSettings?.id
+            if (!lastID) {
+                throw new Error('Failed to get new last ID from settings result')
+            }
+            const mutationResult = await client.mutation(
+                EditSettings,
+                {
+                    lastID,
+                    subject: userSetting.id,
+                    edit,
+                },
+                { requestPolicy: 'network-only', fetch }
+            )
+            if (!mutationResult.data || mutationResult.error) {
+                throw new Error(`Failed to update editor path: ${mutationResult.error}`)
             }
         },
     }

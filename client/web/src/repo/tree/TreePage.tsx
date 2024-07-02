@@ -1,4 +1,4 @@
-import React, { type FC, useEffect, useMemo } from 'react'
+import React, { useEffect, useMemo, type FC } from 'react'
 
 import {
     mdiAccount,
@@ -12,13 +12,12 @@ import {
     mdiSourceFork,
     mdiSourceRepository,
     mdiTag,
-    mdiVectorPolyline,
 } from '@mdi/js'
 import classNames from 'classnames'
 import { Navigate } from 'react-router-dom'
 import { catchError } from 'rxjs/operators'
 
-import { asError, encodeURIPathComponent, type ErrorLike, isErrorLike, basename } from '@sourcegraph/common'
+import { asError, basename, encodeURIPathComponent, isErrorLike, type ErrorLike } from '@sourcegraph/common'
 import { gql, useQuery } from '@sourcegraph/http-client'
 import { fetchTreeEntries } from '@sourcegraph/shared/src/backend/repo'
 import { displayRepoName } from '@sourcegraph/shared/src/components/RepoLink'
@@ -26,7 +25,7 @@ import type { PlatformContextProps } from '@sourcegraph/shared/src/platform/cont
 import type { Settings } from '@sourcegraph/shared/src/schema/settings.schema'
 import type { SearchContextProps } from '@sourcegraph/shared/src/search'
 import type { SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
-import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
 import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { toPrettyBlobURL } from '@sourcegraph/shared/src/util/url'
 import {
@@ -47,13 +46,11 @@ import type { AuthenticatedUser } from '../../auth'
 import type { BatchChangesProps } from '../../batches'
 import { RepoBatchChangesButton } from '../../batches/RepoBatchChangesButton'
 import type { CodeIntelligenceProps } from '../../codeintel'
-import { isCodyEnabled } from '../../cody/isCodyEnabled'
 import type { BreadcrumbSetters } from '../../components/Breadcrumbs'
 import { PageTitle } from '../../components/PageTitle'
 import type { FileCommitsResult, FileCommitsVariables, RepositoryFields } from '../../graphql-operations'
 import type { SourcegraphContext } from '../../jscontext'
 import type { OwnConfigProps } from '../../own/OwnConfigProps'
-import { TryCodyWidget } from '../components/TryCodyWidget/TryCodyWidget'
 import { FilePathBreadcrumbs } from '../FilePathBreadcrumbs'
 import { isPackageServiceType } from '../packages/isPackageServiceType'
 import { RepoCommitsButton } from '../utils'
@@ -83,6 +80,7 @@ export interface Props
     extends SettingsCascadeProps<Settings>,
         PlatformContextProps,
         TelemetryProps,
+        TelemetryV2Props,
         CodeIntelligenceProps,
         BatchChangesProps,
         Pick<SearchContextProps, 'selectedSearchContextSpec'>,
@@ -141,10 +139,12 @@ export const TreePage: FC<Props> = ({
     useEffect(() => {
         if (isRoot) {
             props.telemetryService.logViewEvent('Repository')
+            props.telemetryRecorder.recordEvent('repo', 'view')
         } else {
             props.telemetryService.logViewEvent('Tree')
+            props.telemetryRecorder.recordEvent('repo.tree', 'view')
         }
-    }, [isRoot, props.telemetryService])
+    }, [isRoot, props.telemetryService, props.telemetryRecorder])
 
     useBreadcrumb(
         useMemo(() => {
@@ -163,12 +163,11 @@ export const TreePage: FC<Props> = ({
                         filePath={filePath}
                         isDir={true}
                         telemetryService={props.telemetryService}
-                        // TODO (dadlerj): update to use a real telemetry recorder
-                        telemetryRecorder={noOpTelemetryRecorder}
+                        telemetryRecorder={props.telemetryRecorder}
                     />
                 ),
             }
-        }, [isRoot, filePath, repoName, revision, props.telemetryService])
+        }, [isRoot, filePath, repoName, revision, props.telemetryService, props.telemetryRecorder])
     )
 
     const treeOrError = useObservable(
@@ -300,20 +299,6 @@ export const TreePage: FC<Props> = ({
                             </Button>
                         </Tooltip>
                     )}
-                    {window.context?.codyEnabled && window.context?.embeddingsEnabled && (
-                        <Tooltip content="Embeddings">
-                            <Button
-                                className="flex-shrink-0"
-                                to={`/${encodeURIPathComponent(repoName)}/-/embeddings`}
-                                variant="secondary"
-                                outline={true}
-                                as={Link}
-                            >
-                                <Icon aria-hidden={true} svgPath={mdiVectorPolyline} />{' '}
-                                <span className={styles.text}>Embeddings</span>
-                            </Button>
-                        </Tooltip>
-                    )}
                     {batchChangesEnabled && !isPackage && (
                         <Tooltip content="Batch changes">
                             <RepoBatchChangesButton
@@ -331,7 +316,10 @@ export const TreePage: FC<Props> = ({
                                 variant="secondary"
                                 outline={true}
                                 as={Link}
-                                onClick={() => props.telemetryService.log('repoPage:ownershipPage:clicked')}
+                                onClick={() => {
+                                    props.telemetryService.log('repoPage:ownershipPage:clicked')
+                                    props.telemetryRecorder.recordEvent('repo.ownershipButton', 'click')
+                                }}
                             >
                                 <Icon aria-hidden={true} svgPath={mdiAccount} />{' '}
                                 <span className={styles.text}>Ownership</span>
@@ -360,18 +348,6 @@ export const TreePage: FC<Props> = ({
 
     return (
         <div className={classNames(styles.treePage, className)}>
-            {(isSourcegraphDotCom || isCodyEnabled()) && (
-                <TryCodyWidget
-                    className="mb-2"
-                    telemetryService={props.telemetryService}
-                    // TODO (dadlerj): update to use a real telemetry recorder
-                    telemetryRecorder={noOpTelemetryRecorder}
-                    type="repo"
-                    authenticatedUser={authenticatedUser}
-                    context={context}
-                    isSourcegraphDotCom={isSourcegraphDotCom}
-                />
-            )}
             <Container className={styles.container}>
                 <div className={classNames(styles.header)}>
                     <PageTitle title={getPageTitle()} />

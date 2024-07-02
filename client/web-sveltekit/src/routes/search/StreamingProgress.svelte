@@ -1,12 +1,5 @@
 <script lang="ts">
-    import {
-        mdiAlertCircle,
-        mdiAlert,
-        mdiChevronDown,
-        mdiChevronLeft,
-        mdiInformationOutline,
-        mdiMagnify,
-    } from '@mdi/js'
+    import type { ComponentProps } from 'svelte'
 
     import { limitHit, sortBySeverity } from '$lib/branded'
     import { renderMarkdown, pluralize } from '$lib/common'
@@ -20,10 +13,10 @@
     export let progress: Progress
     export let state: 'complete' | 'error' | 'loading'
 
-    const icons: Record<string, string> = {
-        info: mdiInformationOutline,
-        warning: mdiAlert,
-        error: mdiAlertCircle,
+    const icons: Record<string, ComponentProps<Icon>['icon']> = {
+        info: ILucideInfo,
+        warning: ILucideAlertCircle,
+        error: ILucideCircleX,
     }
     let searchAgainDisabled = true
 
@@ -66,26 +59,20 @@
             <h3>Some results skipped</h3>
             {#each sortedItems as item, index (item.reason)}
                 {@const open = openItems[index]}
-                <Button variant="primary" outline>
-                    <svelte:fragment slot="custom" let:buttonClass>
-                        <button
-                            type="button"
-                            class="{buttonClass} p-2 w-100 bg-transparent border-0"
-                            aria-expanded={open}
-                            on:click={() => (openItems[index] = !open)}
-                        >
-                            <h4 class="d-flex align-items-center mb-0 w-100">
-                                <span class="mr-1 flex-shrink-0"><Icon svgPath={icons[item.severity]} inline /></span>
-                                <span class="flex-grow-1 text-left">{item.title}</span>
-                                {#if item.message}
-                                    <span class="chevron flex-shrink-0"
-                                        ><Icon svgPath={open ? mdiChevronDown : mdiChevronLeft} inline /></span
-                                    >
-                                {/if}
-                            </h4>
-                        </button>
-                    </svelte:fragment>
-                </Button>
+                <button type="button" class="toggle" aria-expanded={open} on:click={() => (openItems[index] = !open)}>
+                    <h4>
+                        <Icon
+                            icon={icons[item.severity]}
+                            aria-label={item.severity}
+                            inline
+                            --icon-color="var(--primary)"
+                        />
+                        <span class="title">{item.title}</span>
+                        {#if item.message}
+                            <Icon icon={open ? ILucideChevronDown : ILucideChevronLeft} inline aria-hidden />
+                        {/if}
+                    </h4>
+                </button>
                 {#if item.message && open}
                     <div class="message">
                         {@html renderMarkdown(item.message)}
@@ -111,8 +98,8 @@
                 {/each}
                 <Button variant="primary">
                     <svelte:fragment slot="custom" let:buttonClass>
-                        <button class="{buttonClass} mt-3" disabled={searchAgainDisabled}>
-                            <Icon svgPath={mdiMagnify} />
+                        <button class="{buttonClass} search" disabled={searchAgainDisabled}>
+                            <Icon icon={ILucideSearch} aria-hidden="true" inline />
                             <span>Search again</span>
                         </button>
                     </svelte:fragment>
@@ -163,7 +150,7 @@
     .progress-button {
         border: 1px solid var(--border-color-2);
         border-radius: 4px;
-        margin-left: 0.3rem;
+        padding: 0;
     }
 
     .streaming-popover {
@@ -174,5 +161,30 @@
         form {
             margin: 1rem;
         }
+    }
+
+    button.toggle {
+        all: unset;
+
+        cursor: pointer;
+        display: block;
+        box-sizing: border-box;
+        padding: 0.5rem;
+        width: 100%;
+
+        h4 {
+            display: flex;
+            margin-bottom: 0;
+            align-items: center;
+            gap: 0.25rem;
+
+            .title {
+                flex: 1;
+            }
+        }
+    }
+
+    button.search {
+        margin-top: 1rem;
     }
 </style>

@@ -8,14 +8,16 @@ import (
 	"time"
 
 	"github.com/grafana/regexp"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/sourcegraph/log"
 
+	"github.com/sourcegraph/sourcegraph/cmd/repo-updater/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/internal/actor"
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/database"
-	"github.com/sourcegraph/sourcegraph/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/internal/limiter"
 	"github.com/sourcegraph/sourcegraph/internal/ratelimit"
 	"github.com/sourcegraph/sourcegraph/internal/repoupdater/protocol"
@@ -50,7 +52,7 @@ const (
 // is limited by the gitMaxConcurrentClones site configuration.
 type UpdateScheduler struct {
 	db              database.DB
-	gitserverClient gitserver.Client
+	gitserverClient gitserver.RepositoryServiceClient
 	updateQueue     *updateQueue
 	schedule        *schedule
 	logger          log.Logger
@@ -71,7 +73,7 @@ type configuredRepo struct {
 const notifyChanBuffer = 1
 
 // NewUpdateScheduler returns a new scheduler.
-func NewUpdateScheduler(logger log.Logger, db database.DB, gitserverClient gitserver.Client) *UpdateScheduler {
+func NewUpdateScheduler(logger log.Logger, db database.DB, gitserverClient gitserver.RepositoryServiceClient) *UpdateScheduler {
 	updateSchedLogger := logger.Scoped("UpdateScheduler")
 
 	return &UpdateScheduler{
@@ -91,20 +93,100 @@ func NewUpdateScheduler(logger log.Logger, db database.DB, gitserverClient gitse
 	}
 }
 
+func (s *UpdateScheduler) Name() string {
+	return "UpdateScheduler"
+}
+
 func (s *UpdateScheduler) Start() {
 	// Make sure the update scheduler acts as an internal actor, so it can see all
 	// repos.
 	ctx, cancel := context.WithCancel(actor.WithInternalActor(context.Background()))
 	s.cancelCtx = cancel
 
+	s.logger.Info("hydrating update scheduler")
+
+	// Hydrate the scheduler with the initial set of repos.
+	// This is done to preset the intervals from the database state, so that
+	// repos that haven't changed in a while don't need to be refetched once
+	// after a restart until we restore the previous schedule.
+	var nextCursor int
+	errors := 0
+	for {
+		var (
+			rs  []types.RepoGitserverStatus
+			err error
+		)
+		rs, nextCursor, err = s.db.GitserverRepos().IterateRepoGitserverStatus(ctx, database.IterateRepoGitserverStatusOptions{
+			NextCursor: nextCursor,
+			BatchSize:  1000,
+		})
+		if err != nil {
+			errors++
+			s.logger.Error("failed to iterate gitserver repos", log.Error(err), log.Int("errors", errors))
+			if errors > 5 {
+				s.logger.Error("too many errors, stopping initial hydration of update queue, the queue will build up lazily")
+				return
+			}
+			time.Sleep(time.Second)
+			continue
+		}
+		for _, r := range rs {
+			cr := configuredRepo{
+				ID:   r.ID,
+				Name: r.Name,
+			}
+			if !s.schedule.upsert(cr) {
+				interval := initialInterval(r)
+				s.schedule.updateInterval(cr, interval)
+			}
+		}
+		if nextCursor == 0 {
+			break
+		}
+
+		s.logger.Info("hydrated update scheduler")
+	}
+
 	go s.runUpdateLoop(ctx)
 	go s.runScheduleLoop(ctx)
 }
 
-func (s *UpdateScheduler) Stop() {
+// initialInterval determines the initial interval used for the scheduler:
+// (Any values outside of [45s, 8h] are capped)
+// Last changed: 2h30m ago
+// Last fetched: 2h ago
+// Time since last changed: 2:30h
+// Interval between last fetch and last change: 30 min
+// The next fetch will be due at: 2h ago (last fetched) + 30min/2
+// = 1:45h ago.
+// Since this time is in the past, it will be scheduled immediately.
+// Another example:
+// Last Changed: 2h ago
+// Last fetched: 30 min ago
+// Interval between last fetch and last change: 1h:30 min
+// The next fetch will be due at: 30 min ago (last fetched) + 90min/2
+// = in 15 minutes.
+func initialInterval(r types.RepoGitserverStatus) time.Duration {
+	interval := r.LastFetched.Sub(r.LastChanged) / 2
+	if interval < minDelay {
+		interval = minDelay
+	} else if interval > maxDelay {
+		interval = maxDelay
+	}
+	interval = time.Until(r.LastFetched.Add(interval))
+	if interval < minDelay {
+		interval = minDelay
+	} else if interval > maxDelay {
+		interval = maxDelay
+	}
+	return interval
+}
+
+func (s *UpdateScheduler) Stop(context.Context) error {
 	if s.cancelCtx != nil {
 		s.cancelCtx()
 	}
+	return nil
 }
 
 // runScheduleLoop starts the loop that schedules updates by enqueuing them into the updateQueue.
@@ -179,16 +261,28 @@ func (s *UpdateScheduler) runUpdateLoop(ctx context.Context) {
 				// if it doesn't exist or update it if it does. The timeout of this request depends
 				// on the value of conf.GitLongCommandTimeout() or if the passed context has a set
 				// deadline shorter than the value of this config.
-				resp, err := s.gitserverClient.RequestRepoUpdate(ctx, repo.Name)
+				lastFetched, lastChanged, err := s.gitserverClient.FetchRepository(ctx, repo.Name)
 				if err != nil {
-					schedError.WithLabelValues("requestRepoUpdate").Inc()
-					subLogger.Error("error requesting repo update", log.Error(err), log.String("uri", string(repo.Name)))
-				} else if resp != nil && resp.Error != "" {
-					schedError.WithLabelValues("repoUpdateResponse").Inc()
-					// We don't want to spam our logs when the rate limiter has been set to block all
-					// updates
-					if !strings.Contains(resp.Error, ratelimit.ErrBlockAll.Error()) {
-						subLogger.Error("error updating repo", log.String("err", resp.Error), log.String("uri", string(repo.Name)))
+					s, ok := status.FromError(err)
+					if ok && s.Code() == codes.Unavailable {
+						schedError.WithLabelValues("requestRepoUpdate").Inc()
+						subLogger.Error("error requesting repo update", log.Error(err), log.String("uri", string(repo.Name)))
+					} else {
+						schedError.WithLabelValues("repoUpdateResponse").Inc()
+						// We don't want to spam our logs when the rate limiter has been set to block all
+						// updates, or when repo-updater is shutting down.
+						if !strings.Contains(err.Error(), ratelimit.ErrBlockAll.Error()) && ctx.Err() == nil {
+							subLogger.Error("error updating repo", log.Error(err), log.String("uri", string(repo.Name)))
+						}
+					}
+				} else {
+					// If the update succeeded, store the latest values for last_fetched
+					// and last_changed in the database.
+					if err := s.db.GitserverRepos().SetLastFetched(ctx, repo.Name, database.GitserverFetchData{
+						LastFetched: lastFetched,
+						LastChanged: lastChanged,
+					}); err != nil {
+						subLogger.Error("failed to store repo update timestamps", log.Error(err))
 					}
 				}
 
@@ -197,16 +291,16 @@ func (s *UpdateScheduler) runUpdateLoop(ctx context.Context) {
 					return
 				}
 
-				if err != nil || (resp != nil && resp.Error != "") {
+				if err != nil {
 					// On error we will double the current interval so that we back off and don't
 					// get stuck with problematic repos with low intervals.
 					if currentInterval, ok := s.schedule.getCurrentInterval(repo); ok {
 						s.schedule.updateInterval(repo, currentInterval*2)
 					}
-				} else if resp != nil && resp.LastFetched != nil && resp.LastChanged != nil {
+				} else {
 					// This is the heuristic that is described in the UpdateScheduler documentation.
 					// Update that documentation if you update this logic.
-					interval := resp.LastFetched.Sub(*resp.LastChanged) / 2
+					interval := lastFetched.Sub(lastChanged) / 2
 					s.schedule.updateInterval(repo, interval)
 				}
 			}()
@@ -267,8 +361,11 @@ func (s *UpdateScheduler) UpdateFromDiff(diff types.RepoSyncDiff) {
 	for _, r := range diff.Added {
 		s.upsert(r, true)
 	}
-	for _, r := range diff.Modified.Repos() {
-		s.upsert(r, true)
+	for _, r := range diff.Modified {
+		// Modified repos only need to be updated immediately if their name changed,
+		// otherwise we just make sure they're part of the scheduler, but don't
+		// trigger a repo update.
+		s.upsert(r.Repo, r.Modified&types.RepoModifiedName == types.RepoModifiedName)
 	}
 
 	known := len(diff.Added) + len(diff.Modified)

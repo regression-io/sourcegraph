@@ -8,6 +8,7 @@ go_library(
     ],
     embedsrcs = ["gcs_versions.json"],
     importpath = "github.com/sourcegraph/sourcegraph/cmd/migrator/airgappedgen",
+    tags = [TAG_INFRA_RELEASE],
     visibility = ["//visibility:private"],
     deps = [
         "//lib/errors",
@@ -22,6 +23,7 @@ go_library(
 go_binary(
     name = "airgappedgen",
     embed = [":airgappedgen_lib"],
+    tags = [TAG_INFRA_RELEASE],
     visibility = ["//visibility:public"],
 )
 
@@ -69,7 +71,7 @@ genrule(
         tar -cf $@ --owner=:0 --group=:0 --numeric-owner schema-descriptions/
     fi
     """,
-    stamp = 1,
+    stamp = -1,
     tags = ["requires-network"],
     tools = [":airgappedgen"],
     visibility = ["//cmd/migrator:__subpackages__"],

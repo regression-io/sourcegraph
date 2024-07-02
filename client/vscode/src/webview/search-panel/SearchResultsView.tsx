@@ -17,7 +17,7 @@ import {
 import { LATEST_VERSION, type RepositoryMatch, type SearchMatch } from '@sourcegraph/shared/src/search/stream'
 import { buildSearchURLQuery } from '@sourcegraph/shared/src/util/url'
 
-import type { SearchPatternType } from '../../graphql-operations'
+import { SearchPatternType } from '../../graphql-operations'
 import type { SearchResultsState } from '../../state'
 import type { WebviewPageProps } from '../platform/context'
 
@@ -322,6 +322,7 @@ export const SearchResultsView: React.FunctionComponent<React.PropsWithChildren<
                     caseSensitive={context.submittedSearchQueryState?.searchCaseSensitivity}
                     setCaseSensitivity={setCaseSensitivity}
                     patternType={context.submittedSearchQueryState?.searchPatternType}
+                    defaultPatternType={SearchPatternType.standard}
                     setPatternType={setPatternType}
                     searchMode={context.submittedSearchQueryState?.searchMode}
                     setSearchMode={setSearchMode}
@@ -340,6 +341,7 @@ export const SearchResultsView: React.FunctionComponent<React.PropsWithChildren<
                     getUserSearchContextNamespaces={getUserSearchContextNamespaces}
                     fetchStreamSuggestions={fetchStreamSuggestions}
                     telemetryService={platformContext.telemetryService}
+                    telemetryRecorder={platformContext.telemetryRecorder}
                     platformContext={platformContext}
                     className={classNames('flex-grow-1 flex-shrink-past-contents', styles.searchBox)}
                     containerClassName={styles.searchBoxContainer}
@@ -366,6 +368,7 @@ export const SearchResultsView: React.FunctionComponent<React.PropsWithChildren<
                                 onSearchAgain={onSearchAgain}
                                 showTrace={false}
                                 telemetryService={platformContext.telemetryService}
+                                telemetryRecorder={platformContext.telemetryRecorder}
                             />
                         }
                         allExpanded={allExpanded}
@@ -377,6 +380,7 @@ export const SearchResultsView: React.FunctionComponent<React.PropsWithChildren<
                         <StreamingSearchResultsList
                             settingsCascade={settingsCascade}
                             telemetryService={platformContext.telemetryService}
+                            telemetryRecorder={platformContext.telemetryRecorder}
                             allExpanded={allExpanded}
                             // Debt: dotcom prop used only for "run search" link
                             // for search examples. Fix on VSCE.
@@ -389,6 +393,8 @@ export const SearchResultsView: React.FunctionComponent<React.PropsWithChildren<
                             resultClassName="mr-0"
                             showQueryExamplesOnNoResultsPage={true}
                             selectedSearchContextSpec={context.selectedSearchContextSpec}
+                            // The VSCode extension does not support file preview, so turn that off in the search results.
+                            hideFilePreviewButton={true}
                         />
                     </MatchHandlersContext.Provider>
                 </div>

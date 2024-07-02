@@ -19,7 +19,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sourcegraph/sourcegraph/cmd/searcher/protocol"
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/database"
@@ -35,6 +34,7 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/search/searcher"
 	"github.com/sourcegraph/sourcegraph/internal/search/streaming"
 	searchzoekt "github.com/sourcegraph/sourcegraph/internal/search/zoekt"
+	"github.com/sourcegraph/sourcegraph/internal/searcher/protocol"
 	"github.com/sourcegraph/sourcegraph/internal/trace"
 	"github.com/sourcegraph/sourcegraph/internal/types"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
@@ -528,6 +528,18 @@ func (r *Resolver) normalizeRepoRefs(
 			globs = append(globs, gitdomain.RefGlob{Include: rev.RefGlob})
 		case rev.ExcludeRefGlob != "":
 			globs = append(globs, gitdomain.RefGlob{Exclude: rev.ExcludeRefGlob})
+		case rev.RevAtTime != nil:
+			commitOID, found, err := r.gitserver.RevAtTime(ctx, repo.Name, rev.RevAtTime.RevSpec, rev.RevAtTime.Timestamp)
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) || errors.HasType[*gitdomain.BadCommitError](err) {
+					return nil, err
+				}
+				reportMissing(RepoRevSpecs{Repo: repo, Revs: []query.RevisionSpecifier{rev}})
+				continue
+			}
+			if found {
+				revs = append(revs, string(commitOID))
+			}
 		case rev.RevSpec == "" || rev.RevSpec == "HEAD":
 			// NOTE: HEAD is the only case here that we don't resolve to a
 			// commit ID. We should consider building []gitdomain.Ref here
@@ -538,7 +550,7 @@ func (r *Resolver) normalizeRepoRefs(
 			trimmedRev := strings.TrimPrefix(rev.RevSpec, "^")
 			_, err := r.gitserver.ResolveRevision(ctx, repo.Name, trimmedRev, gitserver.ResolveRevisionOptions{EnsureRevision: false})
 			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) || errors.HasType(err, &gitdomain.BadCommitError{}) {
+				if errors.Is(err, context.DeadlineExceeded) || errors.HasType[*gitdomain.BadCommitError](err) {
 					return nil, err
 				}
 				reportMissing(RepoRevSpecs{Repo: repo, Revs: []query.RevisionSpecifier{rev}})
@@ -558,7 +570,7 @@ func (r *Resolver) normalizeRepoRefs(
 		return nil, err
 	}
 
-	allRefs, err := r.gitserver.ListRefs(ctx, repo.Name)
+	allRefs, err := r.gitserver.ListRefs(ctx, repo.Name, gitserver.ListRefsOpts{})
 	if err != nil {
 		return nil, err
 	}
@@ -588,6 +600,11 @@ func (r *Resolver) filterHasCommitAfter(
 		return repoRevs, nil
 	}
 
+	timeRef, err := gitdomain.ParseGitDate(op.CommitAfter.TimeRef, time.Now)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid time ref")
+	}
+
 	p := pool.New().WithContext(ctx).WithMaxGoroutines(128)
 
 	for _, repoRev := range repoRevs {
@@ -601,8 +618,8 @@ func (r *Resolver) filterHasCommitAfter(
 		for _, rev := range allRevs {
 			rev := rev
 			p.Go(func(ctx context.Context) error {
-				if hasCommitAfter, err := r.gitserver.HasCommitAfter(ctx, repoRev.Repo.Name, op.CommitAfter.TimeRef, rev); err != nil {
-					if errors.HasType(err, &gitdomain.RevisionNotFoundError{}) || gitdomain.IsRepoNotExist(err) {
+				if hasCommitAfter, err := hasCommitAfter(ctx, r.gitserver, repoRev.Repo.Name, timeRef, rev); err != nil {
+					if errors.HasType[*gitdomain.RevisionNotFoundError](err) || gitdomain.IsRepoNotExist(err) {
 						// If the revision does not exist or the repo does not exist,
 						// it certainly does not have any commits after some time.
 						// Ignore the error, but filter this repo out.
@@ -636,6 +653,25 @@ func (r *Resolver) filterHasCommitAfter(
 	}
 
 	return filteredRepoRevs, nil
+}
+
+// hasCommitAfter indicates the staleness of a repository. It returns a boolean indicating if a repository
+// contains a commit past a specified date.
+func hasCommitAfter(ctx context.Context, gitserverClient gitserver.Client, repoName api.RepoName, timeRef time.Time, revspec string) (bool, error) {
+	if revspec == "" {
+		revspec = "HEAD"
+	}
+
+	// TODO: Because N: 1 currently has a special meaning because of `isRequestForSingleCommit`,
+	// we ask for two commits here, but the second one we never actually need.
+	// One we figure out why `isRequestForSingleCommit` exists in the first place,
+	// we should update this.
+	commits, err := gitserverClient.Commits(ctx, repoName, gitserver.CommitsOptions{N: 2, After: timeRef, Ranges: []string{revspec}})
+	if err != nil {
+		return false, err
+	}
+
+	return len(commits) > 0, nil
 }
 
 // filterRepoHasFileContent filters a page of repos to only those that match the
@@ -779,7 +815,7 @@ func (r *Resolver) filterRepoHasFileContent(
 		checkHasMatches := func(ctx context.Context, arg query.RepoHasFileContentArgs, repo types.MinimalRepo, rev string) (bool, error) {
 			commitID, err := r.gitserver.ResolveRevision(ctx, repo.Name, rev, gitserver.ResolveRevisionOptions{EnsureRevision: false})
 			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) || errors.HasType(err, &gitdomain.BadCommitError{}) {
+				if errors.Is(err, context.DeadlineExceeded) || errors.HasType[*gitdomain.BadCommitError](err) {
 					return false, err
 				} else if e := (&gitdomain.RevisionNotFoundError{}); errors.As(err, &e) && (rev == "HEAD" || rev == "") {
 					// In the case that we can't find HEAD, that means there are no commits, which means

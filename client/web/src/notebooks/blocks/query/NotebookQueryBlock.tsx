@@ -12,7 +12,7 @@ import type { PlatformContextProps } from '@sourcegraph/shared/src/platform/cont
 import type { SearchContextProps } from '@sourcegraph/shared/src/search'
 import { fetchStreamSuggestions } from '@sourcegraph/shared/src/search/suggestions'
 import type { SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
-import { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
 import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { buildSearchURLQuery } from '@sourcegraph/shared/src/util/url'
 import { LoadingSpinner, useObservable, Icon } from '@sourcegraph/wildcard'
@@ -40,6 +40,7 @@ interface NotebookQueryBlockProps
     isSourcegraphDotCom: boolean
     fetchHighlightedFileLineRanges: (parameters: FetchFileParameters, force?: boolean) => Observable<string[][]>
     authenticatedUser: AuthenticatedUser | null
+    patternType: SearchPatternType
 }
 
 // Defines the max height for the CodeMirror editor
@@ -68,6 +69,7 @@ export const NotebookQueryBlock: React.FunctionComponent<React.PropsWithChildren
         isSourcegraphDotCom,
         searchContextsEnabled,
         ownEnabled,
+        patternType,
         ...props
     }) => {
         const [editor, setEditor] = useState<EditorView | null>(null)
@@ -107,10 +109,10 @@ export const NotebookQueryBlock: React.FunctionComponent<React.PropsWithChildren
                     type: 'link',
                     label: 'Open in new tab',
                     icon: <Icon aria-hidden={true} svgPath={mdiOpenInNew} />,
-                    url: `/search?${buildSearchURLQuery(input.query, SearchPatternType.standard, false)}`,
+                    url: `/search?${buildSearchURLQuery(input.query, patternType, false)}`,
                 },
             ],
-            [input]
+            [input, patternType]
         )
 
         const commonMenuActions = linkMenuActions.concat(useCommonBlockMenuActions({ id, ...props }))
@@ -161,7 +163,7 @@ export const NotebookQueryBlock: React.FunctionComponent<React.PropsWithChildren
                             <CodeMirrorQueryInput
                                 ref={setEditor}
                                 value={input.query}
-                                patternType={SearchPatternType.standard}
+                                patternType={patternType}
                                 interpretComments={true}
                                 onChange={onInputChange}
                                 multiLine={true}
@@ -191,6 +193,7 @@ export const NotebookQueryBlock: React.FunctionComponent<React.PropsWithChildren
                                 results={searchResults}
                                 fetchHighlightedFileLineRanges={fetchHighlightedFileLineRanges}
                                 telemetryService={telemetryService}
+                                telemetryRecorder={telemetryRecorder}
                                 settingsCascade={settingsCascade}
                                 platformContext={props.platformContext}
                                 openMatchesInNewTab={true}

@@ -178,6 +178,25 @@ func (e *Env) GetInterval(name, defaultValue, description string) time.Duration 
 	return d
 }
 
+// GetInterval parses a duration string using 'time.ParseDuration', expecting
+// formats such as "300ms", "-1.5h" or "2h45m". Valid time units are "ns", "us"
+// (or "µs"), "ms", "s", "m", "h".
+//
+// The name and description are reported when running a service using the MSP
+// runtime with the '-help' flag.
+func (e *Env) GetOptionalInterval(name, description string) *time.Duration {
+	rawValue := e.GetOptional(name, description)
+	if rawValue == nil {
+		return nil
+	}
+	d, err := time.ParseDuration(*rawValue)
+	if err != nil {
+		e.AddError(errors.Errorf("invalid duration %q for %s: %s", *rawValue, name, err))
+		return nil
+	}
+	return &d
+}
+
 // GetBool returns the value with the given name interpreted as a boolean. If no value was
 // supplied in the environment, the given default is used in its place. If no value is available,
 // or if the given value or default cannot be converted to a boolean, an error is added to the
@@ -193,6 +212,23 @@ func (e *Env) GetBool(name, defaultValue, description string) bool {
 		return false
 	}
 
+	return v
+}
+
+// GetFloat returns the value with the given name interpreted as a float64. If no
+// value was supplied in the environment, the given default is used in its place.
+// If no value is available, or if the given value or default cannot be converted
+// to a float64, an error is added to the validation errors list.
+//
+// The name, defaultValue, and description are reported when running a service
+// using the MSP runtime with the '-help' flag.
+func (e *Env) GetFloat(name, defaultValue, description string) float64 {
+	rawValue := e.get(name, defaultValue, description)
+	v, err := strconv.ParseFloat(rawValue, 64)
+	if err != nil {
+		e.AddError(errors.Errorf("invalid float %q for %s: %s", rawValue, name, err))
+		return 0
+	}
 	return v
 }
 

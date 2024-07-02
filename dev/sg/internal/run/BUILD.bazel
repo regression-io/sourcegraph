@@ -18,6 +18,7 @@ go_library(
         "sgconfig_command_options.go",
     ],
     importpath = "github.com/sourcegraph/sourcegraph/dev/sg/internal/run",
+    tags = [TAG_INFRA_DEVINFRA],
     visibility = ["//dev/sg:__subpackages__"],
     deps = [
         "//dev/sg/internal/analytics",
@@ -33,6 +34,7 @@ go_library(
         "@com_github_nxadm_tail//:tail",
         "@com_github_rjeczalik_notify//:notify",
         "@com_github_sourcegraph_conc//pool",
+        "@dev_bobheadxi_go_streamline//pipe",
     ],
 )
 
@@ -44,6 +46,7 @@ go_test(
         "logger_test.go",
     ],
     embed = [":run"],
+    tags = [TAG_INFRA_DEVINFRA],
     deps = [
         "@com_github_google_go_cmp//cmp",
         "@com_github_stretchr_testify//assert",

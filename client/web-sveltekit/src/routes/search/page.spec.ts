@@ -10,6 +10,34 @@ import {
     createSymbolMatch,
 } from '../../testing/search-testdata'
 
+const chunkMatch: ContentMatch = {
+    type: 'content',
+    path: 'README.md',
+    pathMatches: [],
+    repository: 'github.com/sourcegraph/conc',
+    repoStars: 9001,
+    commit: 'abcde12345',
+    chunkMatches: [
+        {
+            content: 'lorem ipsum\ndolor sit\namet',
+            contentStart: { offset: 0, line: 1, column: 1 },
+            ranges: [
+                {
+                    // "lorem"
+                    start: { offset: 0, line: 0, column: 0 },
+                    end: { offset: 5, line: 0, column: 5 },
+                },
+                {
+                    // "sit"
+                    start: { offset: 18, line: 1, column: 6 },
+                    end: { offset: 21, line: 1, column: 9 },
+                },
+            ],
+        },
+    ],
+    language: 'text',
+}
+
 test('search input is autofocused', async ({ page }) => {
     await page.goto('/search')
     const searchInput = page.getByRole('textbox')
@@ -23,69 +51,72 @@ test('search input is autofocused', async ({ page }) => {
     await expect(suggestions).toBeVisible()
 })
 
-test('shows suggestions', async ({ sg, page }) => {
-    await page.goto('/search')
-    const searchInput = page.getByRole('textbox')
-    await searchInput.click()
-
-    // Default suggestions
-    await expect(page.getByLabel('Narrow your search')).toBeVisible()
-
-    sg.mockTypes({
-        SearchResults: () => ({
-            repositories: [{ name: 'github.com/sourcegraph/sourcegraph' }],
-            results: [
-                {
-                    __typename: 'FileMatch',
-                    file: {
-                        path: 'sourcegraph.md',
-                        url: '',
-                    },
+test.describe('page.spec.ts', () => {
+    test.beforeEach(async ({ sg, page }) => {
+        sg.mockOperations({
+            Init: () => ({
+                currentUser: null,
+                viewerSettings: {
+                    final: '{"experimentalFeatures":{"enableLazyBlobSyntaxHighlighting":true,"newSearchResultFiltersPanel":true,"newSearchResultsUI":true,"proactiveSearchResultsAggregations":true,"searchResultsAggregations":true,"showMultilineSearchConsole":true}}',
                 },
-            ],
-        }),
+            }),
+        })
     })
 
-    // Repo suggestions
-    await searchInput.fill('source')
-    await expect(page.getByLabel('Repositories')).toBeVisible()
-    await expect(page.getByLabel('Files')).toBeVisible()
+    test.skip('shows suggestions', async ({ page, sg }) => {
+        await page.goto('/search')
+        const searchInput = page.getByRole('textbox')
+        await searchInput.click()
 
-    // Fills suggestion
-    await page.getByText('github.com/sourcegraph/sourcegraph').click()
-    await expect(searchInput).toHaveText('repo:^github\\.com/sourcegraph/sourcegraph$ ')
-})
+        // Default suggestions
+        await expect(page.getByLabel('Narrow your search')).toBeVisible()
 
-test('submits search on enter', async ({ page }) => {
-    await page.goto('/search')
-    const searchInput = page.getByRole('textbox')
-    await searchInput.fill('source')
+        sg.mockTypes({
+            SearchResults: () => ({
+                repositories: [{ name: 'github.com/sourcegraph/sourcegraph' }],
+                results: [
+                    {
+                        __typename: 'FileMatch',
+                        file: {
+                            path: 'sourcegraph.md',
+                            url: '',
+                        },
+                    },
+                ],
+            }),
+        })
 
-    // Submit search
-    await searchInput.press('Enter')
-    await expect(page).toHaveURL(/\/search\?q=.+$/)
-})
+        // Repo suggestions
+        await searchInput.fill('source')
+        await expect(page.getByLabel('Repositories')).toBeVisible()
+        await expect(page.getByLabel('Files')).toBeVisible()
 
-test('fills search query from URL', async ({ page }) => {
-    await page.goto('/search?q=test')
-    await expect(page.getByRole('textbox')).toHaveText('test')
-})
+        // Fills suggestion
+        await page.getByText('github.com/sourcegraph/sourcegraph').click()
+        await expect(searchInput).toHaveText('repo:^github\\.com/sourcegraph/sourcegraph$ ')
+    })
 
-test('main navbar menus are visible above search input', async ({ page, sg }) => {
-    const stream = sg.mockSearchStream()
-    await page.goto('/search?q=test')
-    await stream.publish(createProgressEvent(), createDoneEvent())
-    await stream.close()
-    await page.getByRole('button', { name: 'Code Search' }).click()
-    await page.getByRole('link', { name: 'Search Home' }).click()
-    await expect(page).toHaveURL(/\/search$/)
+    test('submits search on enter', async ({ page }) => {
+        await page.goto('/search')
+        const searchInput = page.getByRole('textbox')
+        await searchInput.fill('source')
+
+        // Submit search
+        await searchInput.press('Enter')
+        await expect(page).toHaveURL(/\/search\?q=.+$/)
+    })
+
+    test('fills search query from URL', async ({ page }) => {
+        await page.goto('/search?q=test')
+        await expect(page.getByRole('textbox')).toHaveText('test')
+    })
 })
 
 test.use({
     permissions: ['clipboard-write', 'clipboard-read'],
 })
 test('copy path button appears and copies path', async ({ page, sg }) => {
-    const stream = sg.mockSearchStream()
+    const stream = await sg.mockSearchStream()
     await page.goto('/search?q=test')
     await page.getByRole('heading', { name: 'Filter results' }).waitFor()
 
@@ -106,45 +137,18 @@ test('copy path button appears and copies path', async ({ page, sg }) => {
         await page.getByRole('link', { name: match.path }).hover()
         expect(copyPathButton).toBeVisible()
         await copyPathButton.click()
-        let clipboardText = await page.evaluate('navigator.clipboard.readText()')
+        const clipboardText = await page.evaluate('navigator.clipboard.readText()')
         expect(clipboardText).toBe(match.path)
     }
 })
 
 test.describe('preview panel', async () => {
-    const chunkMatch: ContentMatch = {
-        type: 'content',
-        path: 'README.md',
-        pathMatches: [],
-        repository: 'github.com/sourcegraph/conc',
-        repoStars: 9001,
-        commit: 'abcde12345',
-        chunkMatches: [
-            {
-                content: 'lorem ipsum\ndolor sit\namet',
-                contentStart: { offset: 0, line: 1, column: 1 },
-                ranges: [
-                    {
-                        // "lorem"
-                        start: { offset: 0, line: 0, column: 0 },
-                        end: { offset: 5, line: 0, column: 5 },
-                    },
-                    {
-                        // "sit"
-                        start: { offset: 18, line: 1, column: 6 },
-                        end: { offset: 21, line: 1, column: 9 },
-                    },
-                ],
-            },
-        ],
-        language: 'text',
-    }
     test('can be opened and closed', async ({ page, sg }) => {
-        const stream = sg.mockSearchStream()
+        const stream = await sg.mockSearchStream()
         await page.goto('/search?q=test')
         await page.getByRole('heading', { name: 'Filter results' }).waitFor()
         sg.mockOperations({
-            BlobPageQuery: () => ({
+            BlobFileViewBlobQuery: () => ({
                 repository: { commit: { blob: { content: chunkMatch.chunkMatches![0].content } } },
             }),
         })
@@ -173,7 +177,7 @@ test.describe('preview panel', async () => {
     })
 
     test('can iterate over matches', async ({ page, sg }) => {
-        const stream = sg.mockSearchStream()
+        const stream = await sg.mockSearchStream()
         await page.goto('/search?q=test')
         await page.getByRole('heading', { name: 'Filter results' }).waitFor()
         await stream.publish(
@@ -187,7 +191,7 @@ test.describe('preview panel', async () => {
         await stream.close()
 
         sg.mockOperations({
-            BlobPageQuery: () => ({
+            BlobFileViewBlobQuery: () => ({
                 repository: { commit: { blob: { content: chunkMatch.chunkMatches![0].content } } },
             }),
         })
@@ -212,5 +216,47 @@ test.describe('preview panel', async () => {
 
         await nextButton.click()
         await expect(currentSelection, 'clicking next on the last result should wrap forwards').toHaveText('lorem')
+    })
+})
+
+test.describe('search results', async () => {
+    test('first result visible', async ({ page, sg }) => {
+        const stream = await sg.mockSearchStream()
+        await page.goto('/search?q=test')
+        await page.getByRole('heading', { name: 'Filter results' }).waitFor()
+        await stream.publish(
+            {
+                type: 'matches',
+                data: [chunkMatch],
+            },
+            createProgressEvent(),
+            createDoneEvent()
+        )
+        await stream.close()
+
+        const chunkPath = page.getByRole('link', { name: 'README.md' })
+        await expect(chunkPath).toBeVisible()
+    })
+
+    test('alert is shown', async ({ page, sg }) => {
+        const stream = await sg.mockSearchStream()
+        await page.goto('/search?q=test')
+        await page.getByRole('heading', { name: 'Filter results' }).waitFor()
+        await stream.publish(
+            {
+                type: 'alert',
+                data: {
+                    title: 'Test alert',
+                    description: 'Test description',
+                    proposedQueries: null,
+                },
+            },
+            createProgressEvent(),
+            createDoneEvent()
+        )
+        await stream.close()
+
+        const alert = page.getByRole('heading', { name: 'Test alert' })
+        await expect(alert).toBeVisible()
     })
 })

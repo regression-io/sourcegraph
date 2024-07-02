@@ -100,7 +100,7 @@ type Mutation {
 
     Only authenticated users may perform this mutation.
     """
-    createOrganization(name: String!, displayName: String, statsID: ID): Org!
+    createOrganization(name: String!, displayName: String): Org!
     """
     Updates an organization.
 
@@ -283,13 +283,6 @@ type Mutation {
     Only the user or site admins may perform this mutation.
     """
     setTosAccepted(userID: ID): EmptyResponse!
-    """
-    Sets the user to have completed the post-signup flow.
-    If the ID is omitted, the current user is assumed.
-
-    Only the user or site admins may perform this mutation.
-    """
-    setCompletedPostSignup(userID: ID): EmptyResponse!
     """
     Creates an access token that grants the privileges of the specified user (referred to as the access token's
     "subject" user after token creation). The result is the access token value, which the caller is responsible
@@ -931,10 +924,6 @@ type Mutation {
     use the default quota.
     """
     setUserCodeCompletionsQuota(user: ID!, quota: Int): User!
-    """
-    Submits a post-signup user survey about intended Cody usage.
-    """
-    submitCodySurvey(isForWork: Boolean!, isForPersonal: Boolean!): EmptyResponse!
 }
 
 """
@@ -1910,8 +1899,9 @@ type Query {
 
     """
     Retrieve all registered out-of-band migrations.
+    Optionally filter deprecated before first version out-of-band-migrations.
     """
-    outOfBandMigrations: [OutOfBandMigration!]!
+    outOfBandMigrations(ExcludeDeprecatedBeforeFirstVersion: Boolean): [OutOfBandMigration!]!
 
     """
     Retrieve the list of defined feature flags
@@ -2043,30 +2033,6 @@ type Query {
     ): OrganizationInvitation!
 
     """
-    Search for users that opt-in to search autocomplete.
-    """
-    autocompleteMembersSearch(
-        """
-        The organization ID
-        """
-        organization: ID!
-        """
-        Return users whose usernames or display names match the query.
-        """
-        query: String!
-    ): [AutocompleteMemberSearchItem!]!
-
-    """
-    Get started organization summary
-    """
-    orgMembersSummary(
-        """
-        The organization ID
-        """
-        organization: ID!
-    ): OrgMembersSummary!
-
-    """
     Lists webhooks. Only available to site admins.
     If no kind is given, it returns all webhooks.
     If first is omitted, 20 items are returned
@@ -2146,6 +2112,13 @@ type Query {
     Site-admin only.
     """
     gitservers: GitserverInstanceConnection!
+
+    """
+    Returns information pertaining to all indexed search instances associated with this Sourcegraph instance.
+
+    Site-admin only.
+    """
+    indexedSearchInstances: IndexedSearchInstanceConnection!
 }
 
 """
@@ -2189,6 +2162,39 @@ type GitserverInstance implements Node {
     The total amount of storage space on the gitserver instance, in bytes.
     """
     totalDiskSpaceBytes: BigInt!
+}
+
+"""
+A list of indexed search instances.
+"""
+type IndexedSearchInstanceConnection {
+    """
+    A list of instances.
+    """
+    nodes: [IndexedSearchInstance!]!
+    """
+    The total count of instances in the connection.
+    """
+    totalCount: Int!
+    """
+    Pagination information.
+    """
+    pageInfo: PageInfo!
+}
+
+"""
+IndexedSearchInstance contains information about a indexed search instance.
+"""
+type IndexedSearchInstance implements Node {
+    """
+    The unique identifier of the instance.
+    """
+    id: ID!
+
+    """
+    The address of the instance.
+    """
+    address: String!
 }
 
 """
@@ -3841,16 +3847,6 @@ type Repository implements Node & GenericSearchResultInterface {
         other Git refs.
         """
         type: GitRefType
-        """
-        Ordering for Git refs in the list.
-        """
-        orderBy: GitRefOrder
-        """
-        Ordering is an expensive operation that doesn't scale for lots of
-        references. If this is true we fallback on not ordering. This should
-        never be false in interactive API requests.
-        """
-        interactive: Boolean = true
     ): GitRefConnection!
     """
     The repository's Git branches.
@@ -3864,16 +3860,6 @@ type Repository implements Node & GenericSearchResultInterface {
         Return Git branches whose names match the query.
         """
         query: String
-        """
-        Ordering for Git branches in the list.
-        """
-        orderBy: GitRefOrder
-        """
-        Ordering is an expensive operation that doesn't scale for lots of
-        references. If this is true we fallback on not ordering. This should
-        never be false in interactive API requests.
-        """
-        interactive: Boolean = true
     ): GitRefConnection!
     """
     The repository's Git tags.
@@ -5054,16 +5040,6 @@ enum GitRefType {
 }
 
 """
-Ordering options for Git refs.
-"""
-enum GitRefOrder {
-    """
-    By the authored or committed at date, whichever is more recent.
-    """
-    AUTHORED_OR_COMMITTED_AT
-}
-
-"""
 A Git object.
 """
 type GitObject {
@@ -6220,6 +6196,10 @@ type FileMatch {
     """
     chunkMatches: [ChunkMatch!]!
     """
+    The ranges of the file path that match the query.
+    """
+    pathMatches: [Range!]!
+    """
     Whether or not the limit was hit.
     """
     limitHit: Boolean!
@@ -6507,7 +6487,13 @@ type User implements Node & SettingsSubject & Namespace {
     """
     tosAccepted: Boolean!
     """
-    The user's usage statistics on Sourcegraph.
+    The user's recent usage statistics on Sourcegraph.
+
+    These statistics are aggregated from the user activity records in the event_logs table. That table only
+    records 93 days worth of history, however, so long-term aggregated statistics may not be accurate (e.g.
+    the lastActiveTime field may appear to be null, when in reality the user was active prior to 93 days ago).
+
+    See SiteUser.lastActiveAt for a GraphQL field that goes back further than 93 days.
     """
     usageStatistics: UserUsageStatistics!
     """
@@ -6533,11 +6519,6 @@ type User implements Node & SettingsSubject & Namespace {
     Only the user and site admins can access this field.
     """
     hasVerifiedEmail: Boolean!
-    """
-    Whether the user has completed the post-signup flow.
-    Only the user and site admins can access this field.
-    """
-    completedPostSignup: Boolean!
     """
     The user's verified primary email address (if any).
     On dotcom only the user and site admins can access this field.
@@ -7133,49 +7114,6 @@ type OrganizationInvitation implements Node {
     """
     isVerifiedEmail: Boolean
 }
-"""
-Result user returned by invite members autocomplete search.
-"""
-type AutocompleteMemberSearchItem {
-    """
-    The unique ID for the user.
-    """
-    id: ID!
-    """
-    The user's username.
-    """
-    username: String!
-    """
-    The display name chosen by the user.
-    """
-    displayName: String
-    """
-    The URL of the user's avatar image.
-    """
-    avatarURL: String
-    """
-    If the user belongs to current Organization.
-    """
-    inOrg: Boolean
-}
-
-"""
-Result organization members count and pending invitations count.
-"""
-type OrgMembersSummary {
-    """
-    The unique ID for the Org.
-    """
-    id: ID!
-    """
-    Total number of members for the org.
-    """
-    membersCount: Int!
-    """
-    Total number of pending invites for the org.
-    """
-    invitesCount: Int!
-}
 
 """
 The recipient's possible responses to an invitation to join an organization as a member.
@@ -7239,6 +7177,27 @@ type DefaultSettings implements SettingsSubject {
         @deprecated(
             reason: "Use settingsCascade instead. This field is a deprecated alias for it and will be removed in a future release."
         )
+}
+
+"""
+The version of the Cody context filters.
+"""
+enum CodyContextFiltersVersion {
+    """
+    Rules defining which repositories Cody may use as context in requests to third-party LLMs.
+    """
+    V1
+}
+
+"""
+Rules defining whether the matching repositories may be included (allowed) or should be excluded (ignored)
+from Cody context in requests to third-party LLMs.
+"""
+type CodyContextFilters {
+    """
+    Cody context filters value from the site configuration.
+    """
+    raw: JSONValue
 }
 
 """
@@ -7512,6 +7471,11 @@ type Site implements SettingsSubject {
     Site-admin only.
     """
     codyGatewayRateLimitStatus: [CodyGatewayRateLimitStatus!]
+
+    """
+    Rules defining the repositories that will never be shared by Cody with third-party LLM providers.
+    """
+    codyContextFilters(version: CodyContextFiltersVersion!): CodyContextFilters!
 }
 
 """
@@ -7524,9 +7488,13 @@ type CodyLLMConfiguration {
     """
     chatModel: String!
     """
-    Maximum number of tokens client should use when talking to the chatModel.
+    Maximum number of tokens client should use when talking to the chatModel. If smartContextWindow is enabled, this value will be ignored.
     """
     chatModelMaxTokens: Int
+    """
+    Enable Cody clients to adjust context window based on the name of the chat model. If enabled, the chatModelMaxTokens value will be ignored.
+    """
+    smartContextWindow: String!
     """
     Name of the model being used for fast chat.
     """
@@ -7948,30 +7916,38 @@ type Configuration {
 """
 UserUsageStatistics describes a user's usage statistics.
 This information is visible to all viewers.
+
+These statistics are aggregated from the user activity records in the event_logs table. That table only
+records 93 days worth of history, however, so long-term aggregated statistics may not be accurate (e.g.
+the lastActiveTime field may appear to be null, when in reality the user was active prior to 93 days ago).
+
+See SiteUser.lastActiveAt for a GraphQL field that goes back further than 93 days.
 """
 type UserUsageStatistics {
     """
-    The number of search queries that the user has performed.
+    The number of search queries that the user has performed in the last 93 days.
     """
     searchQueries: Int!
     """
-    The number of page views that the user has performed.
+    The number of page views that the user has performed in the last 93 days.
     """
     pageViews: Int!
     """
-    The number of code intelligence actions that the user has performed.
+    The number of code intelligence actions that the user has performed in the last 93 days.
     """
     codeIntelligenceActions: Int!
     """
-    The number of find-refs actions that the user has performed.
+    The number of find-refs actions that the user has performed in the last 93 days.
     """
     findReferencesActions: Int!
     """
-    The last time the user was active (any action, any platform).
+    The last time the user was active (any action, any platform) in the last 93 days.
+    Null if the user hasn't been active in that time.
     """
     lastActiveTime: String
     """
-    The last time the user was active on a code host integration.
+    The last time the user was active on a code host integration in the last 93 days.
+    Null if the user hasn't been active in that time.
     """
     lastActiveCodeHostIntegrationTime: String
 }
@@ -8444,6 +8420,12 @@ type SiteUser {
     createdAt: String!
     """
     The datetime when user was last active.
+
+    This is an aggregated metric that goes back to the beginning of the user's time
+    using this Sourcegraph instance.
+
+    This value is only updated every ~12 hours. For real-time data, see
+    UserUsageStatistics.lastActiveTime.
     """
     lastActiveAt: String
     """
@@ -10642,6 +10624,8 @@ type Location {
 
 """
 A range inside a file. The start position is inclusive, and the end position is exclusive.
+
+Invariant: start <= end, where the start == end case is a zero-length range.
 """
 type Range {
     """

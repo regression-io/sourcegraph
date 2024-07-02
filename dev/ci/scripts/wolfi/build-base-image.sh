@@ -22,6 +22,8 @@ fi
 echo "~~~ :aspect: :stethoscope: Agent Health check"
 /etc/aspect/workflows/bin/agent_health_check
 
+echo "~~~ :package: :git: Check for updated packages on branch"
+
 aspectRC="/tmp/aspect-generated.bazelrc"
 rosetta bazelrc >"$aspectRC"
 export BAZELRC="$aspectRC"
@@ -81,6 +83,7 @@ fi
 
 #
 # Build image
+echo "~~~ :docker: :construction_worker: Build base image"
 
 # Build base image with apko
 # If add_custom_repo_cmd isn't empty
@@ -96,6 +99,7 @@ remote_image_name="us.gcr.io/sourcegraph-dev/wolfi-${name}-base"
 
 #
 # Tag image and upload to GCP Artifact Registry
+echo "~~~ :docker: :cloud: Publish base image"
 
 # Push to internal dev repo
 echo "* Pushing image to internal dev repo..."
@@ -125,7 +129,7 @@ EOF
     # Add note if any packages were modified
     if [ ${#modified_packages[@]} -gt 0 ]; then
       cat <<-EOF >>"${REPO_DIR}/annotations/${file}"
-NOTE: Any modified package will <strong>not</strong> be present in the image once merged - <a href="https://sourcegraph.com/docs/dev/how-to/wolfi/add_update_packages#update-an-existing-packaged-dependency">check the docs</a> for more details.
+NOTE: Any modified package will <strong>not</strong> be present in the image once merged - <a href="https://docs-legacy.sourcegraph.com/dev/how-to/wolfi/add_update_packages#update-an-existing-packaged-dependency">check the docs</a> for more details.
 EOF
     fi
   fi

@@ -94,9 +94,7 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 	})
 
 	// Go!
-	goroutine.MonitorBackgroundRoutines(ctx, append(worker, server)...)
-
-	return nil
+	return goroutine.MonitorBackgroundRoutines(ctx, append(worker, server)...)
 }
 
 func mustInitializeDB(observationCtx *observation.Context) *sql.DB {
@@ -114,7 +112,7 @@ func mustInitializeDB(observationCtx *observation.Context) *sql.DB {
 	ctx := context.Background()
 	db := database.NewDB(observationCtx.Logger, sqlDB)
 	go func() {
-		for range time.NewTicker(providers.RefreshInterval()).C {
+		for range time.NewTicker(providers.RefreshInterval(conf.Get())).C {
 			allowAccessByDefault, authzProviders, _, _, _ := providers.ProvidersFromConfig(ctx, conf.Get(), db)
 			authz.SetProviders(allowAccessByDefault, authzProviders)
 		}
@@ -153,5 +151,5 @@ func initializeUploadStore(ctx context.Context, uploadStore uploadstore.Store) e
 }
 
 func isRequestError(err error) bool {
-	return errors.HasType(err, &smithyhttp.RequestSendError{})
+	return errors.HasType[*smithyhttp.RequestSendError](err)
 }

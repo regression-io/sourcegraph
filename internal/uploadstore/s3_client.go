@@ -23,7 +23,6 @@ import (
 )
 
 type s3Store struct {
-	logger       log.Logger
 	bucket       string
 	manageBucket bool
 	client       s3API
@@ -367,7 +366,7 @@ func (s *s3Store) create(ctx context.Context) error {
 		Bucket: aws.String(s.bucket),
 	})
 
-	if errors.HasType(err, &s3types.BucketAlreadyExists{}) || errors.HasType(err, &s3types.BucketAlreadyOwnedByYou{}) {
+	if errors.HasType[*s3types.BucketAlreadyExists](err) || errors.HasType[*s3types.BucketAlreadyOwnedByYou](err) {
 		return nil
 	}
 

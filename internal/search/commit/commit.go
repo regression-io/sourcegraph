@@ -95,7 +95,7 @@ func (j *SearchJob) Run(ctx context.Context, clients job.RuntimeClients, stream 
 		return doSearch(args)
 	}
 
-	p := pool.New().WithContext(ctx).WithMaxGoroutines(4).WithFirstError()
+	p := pool.New().WithContext(ctx).WithMaxGoroutines(j.Concurrency).WithFirstError()
 
 	for _, repoRev := range j.Repos {
 		repoRev := repoRev
@@ -294,10 +294,10 @@ func queryParameterToPredicate(parameter query.Parameter, caseSensitive, diff bo
 	case query.FieldCommitter:
 		newPred = &gitprotocol.CommitterMatches{Expr: parameter.Value, IgnoreCase: !caseSensitive}
 	case query.FieldBefore:
-		t, _ := query.ParseGitDate(parameter.Value, time.Now) // field already validated
+		t, _ := gitdomain.ParseGitDate(parameter.Value, time.Now) // field already validated
 		newPred = &gitprotocol.CommitBefore{Time: t}
 	case query.FieldAfter:
-		t, _ := query.ParseGitDate(parameter.Value, time.Now) // field already validated
+		t, _ := gitdomain.ParseGitDate(parameter.Value, time.Now) // field already validated
 		newPred = &gitprotocol.CommitAfter{Time: t}
 	case query.FieldMessage:
 		newPred = &gitprotocol.MessageMatches{Expr: parameter.Value, IgnoreCase: !caseSensitive}

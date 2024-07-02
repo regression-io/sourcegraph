@@ -2,8 +2,6 @@ package productsubscription_test
 
 import (
 	"context"
-	"fmt"
-	"math"
 	"testing"
 	"time"
 
@@ -13,19 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/graphqlbackend"
+	"github.com/sourcegraph/sourcegraph/cmd/frontend/internal/cody"
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/internal/dotcom/productsubscription"
+	"github.com/sourcegraph/sourcegraph/cmd/frontend/internal/ssc"
 	"github.com/sourcegraph/sourcegraph/internal/accesstoken"
 	"github.com/sourcegraph/sourcegraph/internal/actor"
 	"github.com/sourcegraph/sourcegraph/internal/audit/audittest"
 	"github.com/sourcegraph/sourcegraph/internal/authz"
-	"github.com/sourcegraph/sourcegraph/internal/cody"
 	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/database"
 	"github.com/sourcegraph/sourcegraph/internal/database/dbtest"
 	"github.com/sourcegraph/sourcegraph/internal/extsvc"
 	"github.com/sourcegraph/sourcegraph/internal/featureflag"
 	"github.com/sourcegraph/sourcegraph/internal/rbac"
-	"github.com/sourcegraph/sourcegraph/internal/ssc"
 	"github.com/sourcegraph/sourcegraph/internal/types"
 	"github.com/sourcegraph/sourcegraph/lib/pointers"
 	"github.com/sourcegraph/sourcegraph/schema"
@@ -276,11 +274,6 @@ func TestCodyGatewayCompletionsRateLimit(t *testing.T) {
 	perProUserChatDailyLLMRequestLimit := 50
 	oneDayInSeconds := int32(60 * 60 * 24)
 
-	// Create feature flags
-	limitsExceeded := "rate-limits-exceeded-for-testing"
-	_, err := db.FeatureFlags().CreateBool(ctx, limitsExceeded, false)
-	require.NoError(t, err)
-
 	tru := true
 	cfg := &conf.Unified{
 		SiteConfiguration: schema.SiteConfiguration{
@@ -313,7 +306,7 @@ func TestCodyGatewayCompletionsRateLimit(t *testing.T) {
 		AccountSpec: extsvc.AccountSpec{
 			AccountID:   "123",
 			ServiceType: "openidconnect",
-			ServiceID:   fmt.Sprintf("https://%s", ssc.GetSAMSHostName()),
+			ServiceID:   ssc.GetSAMSServiceID(),
 		},
 	})
 	require.NoError(t, err)
@@ -328,37 +321,7 @@ func TestCodyGatewayCompletionsRateLimit(t *testing.T) {
 		AccountSpec: extsvc.AccountSpec{
 			AccountID:   "456",
 			ServiceType: "openidconnect",
-			ServiceID:   fmt.Sprintf("https://%s", ssc.GetSAMSHostName()),
-		},
-	})
-	require.NoError(t, err)
-
-	// Rate limited Cody SSC - Free user
-	rateLimitsExceededFreeUser, err := db.Users().Create(ctx, database.NewUser{Username: "free-limited", EmailIsVerified: true, Email: "free-limited@test.com"})
-	require.NoError(t, err)
-	_, err = db.FeatureFlags().CreateOverride(ctx, &featureflag.Override{FlagName: limitsExceeded, Value: true, UserID: &rateLimitsExceededFreeUser.ID})
-	require.NoError(t, err)
-	rateLimitsExceededFreeUserExternalAccount, err := db.UserExternalAccounts().Insert(ctx, &extsvc.Account{
-		UserID: rateLimitsExceededFreeUser.ID,
-		AccountSpec: extsvc.AccountSpec{
-			AccountID:   "789",
-			ServiceType: "openidconnect",
-			ServiceID:   fmt.Sprintf("https://%s", ssc.GetSAMSHostName()),
-		},
-	})
-	require.NoError(t, err)
-
-	// Rate limited Cody SSC - Pro user
-	rateLimitsExceededProUser, err := db.Users().Create(ctx, database.NewUser{Username: "pro-limited", EmailIsVerified: true, Email: "pro-limited@test.com"})
-	require.NoError(t, err)
-	_, err = db.FeatureFlags().CreateOverride(ctx, &featureflag.Override{FlagName: limitsExceeded, Value: true, UserID: &rateLimitsExceededProUser.ID})
-	require.NoError(t, err)
-	rateLimitsExceededProUserExternalAccount, err := db.UserExternalAccounts().Insert(ctx, &extsvc.Account{
-		UserID: rateLimitsExceededProUser.ID,
-		AccountSpec: extsvc.AccountSpec{
-			AccountID:   "abc",
-			ServiceType: "openidconnect",
-			ServiceID:   fmt.Sprintf("https://%s", ssc.GetSAMSHostName()),
+			ServiceID:   ssc.GetSAMSServiceID(),
 		},
 	})
 	require.NoError(t, err)
@@ -398,25 +361,6 @@ func TestCodyGatewayCompletionsRateLimit(t *testing.T) {
 			wantChatLimitInterval:           oneDayInSeconds,
 			wantCodeCompletionLimit:         graphqlbackend.BigInt(0),
 			wantCodeCompletionLimitInterval: oneDayInSeconds,
-			pro:                             true,
-		},
-		{
-			name:                            "free-limited",
-			user:                            rateLimitsExceededFreeUser,
-			externalAccount:                 rateLimitsExceededFreeUserExternalAccount,
-			wantChatLimit:                   graphqlbackend.BigInt(1),
-			wantChatLimitInterval:           math.MaxInt32,
-			wantCodeCompletionLimit:         graphqlbackend.BigInt(1),
-			wantCodeCompletionLimitInterval: math.MaxInt32,
-		},
-		{
-			name:                            "pro-limited",
-			user:                            rateLimitsExceededProUser,
-			externalAccount:                 rateLimitsExceededProUserExternalAccount,
-			wantChatLimit:                   graphqlbackend.BigInt(1),
-			wantChatLimitInterval:           math.MaxInt32,
-			wantCodeCompletionLimit:         graphqlbackend.BigInt(1),
-			wantCodeCompletionLimitInterval: math.MaxInt32,
 			pro:                             true,
 		},
 	}

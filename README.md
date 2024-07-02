@@ -47,13 +47,12 @@
 
 ## Development
 
-Refer to the [Developing Sourcegraph guide](https://sourcegraph.com/docs/dev) to get started.
+Refer to the [Developing Sourcegraph guide](https://docs-legacy.sourcegraph.com/dev) to get started.
 
 ### Documentation
 
 The `doc` directory has additional documentation for developing and understanding Sourcegraph:
 
-- [Project FAQ](./doc/admin/faq.md)
 - [Architecture](./doc/dev/background-information/architecture/index.md): high-level architecture
 - [Database setup](./doc/dev/background-information/postgresql.md): database best practices
 - [Go style guide](./doc/dev/background-information/languages/go.md)
@@ -64,3 +63,5 @@ The `doc` directory has additional documentation for developing and understandin
 ## License
 
 This repository contains primarily non-OSS-licensed files. See [LICENSE](LICENSE).
+
+Copyright (c) 2018-present Sourcegraph Inc.

@@ -1584,6 +1584,7 @@ Referenced by:
  queued_at         | timestamp with time zone |           |          | now()
 Indexes:
     "exhaustive_search_jobs_pkey" PRIMARY KEY, btree (id)
+    "exhaustive_search_jobs_state" btree (state)
 Foreign-key constraints:
     "exhaustive_search_jobs_initiator_id_fkey" FOREIGN KEY (initiator_id) REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE
 Referenced by:
@@ -1615,6 +1616,7 @@ Referenced by:
  queued_at         | timestamp with time zone |           |          | now()
 Indexes:
     "exhaustive_search_repo_jobs_pkey" PRIMARY KEY, btree (id)
+    "exhaustive_search_repo_jobs_state" btree (state)
 Foreign-key constraints:
     "exhaustive_search_repo_jobs_repo_id_fkey" FOREIGN KEY (repo_id) REFERENCES repo(id) ON DELETE CASCADE
     "exhaustive_search_repo_jobs_search_job_id_fkey" FOREIGN KEY (search_job_id) REFERENCES exhaustive_search_jobs(id) ON DELETE CASCADE
@@ -1646,6 +1648,7 @@ Referenced by:
  queued_at          | timestamp with time zone |           |          | now()
 Indexes:
     "exhaustive_search_repo_revision_jobs_pkey" PRIMARY KEY, btree (id)
+    "exhaustive_search_repo_revision_jobs_state" btree (state)
 Foreign-key constraints:
     "exhaustive_search_repo_revision_jobs_search_repo_job_id_fkey" FOREIGN KEY (search_repo_job_id) REFERENCES exhaustive_search_repo_jobs(id) ON DELETE CASCADE
 
@@ -2795,6 +2798,7 @@ Foreign-key constraints:
  namespace_user_id | integer                  |           |          | 
  namespace_org_id  | integer                  |           |          | 
  updater_user_id   | integer                  |           |          | 
+ pattern_type      | pattern_type             |           | not null | 'standard'::pattern_type
 Indexes:
     "notebooks_pkey" PRIMARY KEY, btree (id)
     "notebooks_blocks_tsvector_idx" gin (blocks_tsvector)
@@ -4212,7 +4216,7 @@ Foreign-key constraints:
 Indexes:
     "user_external_accounts_pkey" PRIMARY KEY, btree (id)
     "user_external_accounts_account" UNIQUE, btree (service_type, service_id, client_id, account_id) WHERE deleted_at IS NULL
-    "user_external_accounts_user_id_scim_service_type" UNIQUE, btree (user_id, service_type) WHERE service_type = 'scim'::text
+    "user_external_accounts_user_id_scim_service_type" UNIQUE, btree (user_id, service_type) WHERE service_type = 'scim'::text AND deleted_at IS NULL
     "user_external_accounts_user_id" btree (user_id) WHERE deleted_at IS NULL
 Foreign-key constraints:
     "user_external_accounts_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
@@ -5092,6 +5096,14 @@ Foreign-key constraints:
 
 - bool
 - rollout
+
+# Type pattern_type
+
+- keyword
+- literal
+- regexp
+- standard
+- structural
 
 # Type persistmode
 

@@ -1,5 +1,6 @@
 import type { Decorator, Meta, StoryFn } from '@storybook/react'
 
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { NOOP_TELEMETRY_SERVICE } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { updateJSContextBatchChangesLicense } from '@sourcegraph/shared/src/testing/batches'
 
@@ -11,6 +12,10 @@ import { NewGlobalNavigationBar } from './NewGlobalNavigationBar'
 
 const decorator: Decorator<GlobalNavbarProps> = Story => {
     updateJSContextBatchChangesLicense('full')
+
+    window.context.codeSearchEnabledOnInstance = true
+    window.context.codyEnabledOnInstance = true
+    window.context.codyEnabledForCurrentUser = true
 
     return <WebStory>{() => <Story />}</WebStory>
 }
@@ -52,6 +57,7 @@ export const NewGlobalNavigationBarDemo: StoryFn = () => (
         }
         selectedSearchContextSpec=""
         telemetryService={NOOP_TELEMETRY_SERVICE}
+        telemetryRecorder={noOpTelemetryRecorder}
         showFeedbackModal={() => {}}
     />
 )

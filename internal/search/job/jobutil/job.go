@@ -5,12 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-enry/go-enry/v2"
 	"github.com/grafana/regexp"
 
 	zoektquery "github.com/sourcegraph/zoekt/query"
 
-	"github.com/sourcegraph/sourcegraph/cmd/searcher/protocol"
 	"github.com/sourcegraph/sourcegraph/internal/authz"
 	"github.com/sourcegraph/sourcegraph/internal/conf"
 	ownsearch "github.com/sourcegraph/sourcegraph/internal/own/search"
@@ -28,6 +26,8 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/search/smartsearch"
 	"github.com/sourcegraph/sourcegraph/internal/search/structural"
 	"github.com/sourcegraph/sourcegraph/internal/search/zoekt"
+	"github.com/sourcegraph/sourcegraph/internal/searcher/protocol"
+	"github.com/sourcegraph/sourcegraph/lib/codeintel/languages"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 	"github.com/sourcegraph/sourcegraph/schema"
 )
@@ -53,7 +53,7 @@ func NewPlanJob(inputs *search.Inputs, plan query.Plan) (job.Job, error) {
 			return nil, errors.New("The 'codycontext' patterntype is not compatible with Smart Search")
 		}
 
-		newJobTree, err := codycontext.NewSearchJob(plan, newJob)
+		newJobTree, err := codycontext.NewSearchJob(plan, inputs, newJob)
 		if err != nil {
 			return nil, err
 		}
@@ -177,6 +177,7 @@ func NewBasicJob(inputs *search.Inputs, b query.Basic) (job.Job, error) {
 				Diff:                 diff,
 				Limit:                int(fileMatchLimit),
 				IncludeModifiedFiles: authz.SubRepoEnabled(authz.DefaultSubRepoPermsChecker) || own,
+				Concurrency:          4,
 			}
 
 			addJob(
@@ -721,7 +722,7 @@ func toTextPatternInfo(b query.Basic, resultTypes result.Types, feat *search.Fea
 func toLangFilters(aliases []string) []string {
 	var filters []string
 	for _, alias := range aliases {
-		lang, _ := enry.GetLanguageByAlias(alias) // Invariant: lang is valid.
+		lang, _ := languages.GetLanguageByNameOrAlias(alias) // Invariant: lang is valid.
 		if !slices.Contains(filters, lang) {
 			filters = append(filters, lang)
 		}
@@ -901,6 +902,7 @@ func (b *jobBuilder) newZoektSearch(typ search.IndexedRequestType) (job.Job, err
 
 	zoektParams := &search.ZoektParameters{
 		FileMatchLimit:  b.fileMatchLimit,
+		Typ:             typ,
 		Select:          b.selector,
 		Features:        *b.features,
 		PatternType:     b.patternType,

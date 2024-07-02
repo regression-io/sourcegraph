@@ -1,11 +1,6 @@
-# Provides secrets like GH_TOKEN and PERCY_TOKEN via --action_env flag.
+# Provides secrets like GH_TOKEN via --action_env flag.
 # Generated via the `.buildkite/hooks/post-checkout` hook.
 try-import %workspace%/.aspect/bazelrc/ci.generated.bazelrc
-
-# Use repo caching for building and testing.
-# Article: https://buildkite.com/blog/how-bazel-built-its-ci-system-on-top-of-buildkite
-# Docs: https://bazel.build/reference/command-line-reference#flag--repository_cache
-common --repository_cache=/home/buildkite/repocache-sourcegraph
 
 # We need /usr/local/bin
 # TODO(DevX) we should be narrower here.
@@ -37,7 +32,7 @@ common --test_env=HEADLESS=false
 common --test_env=SOURCEGRAPH_BASE_URL="http://127.0.0.1:7080"
 common --test_env=DISPLAY=:99
 
-# Provides git commit, branch information to build targets like Percy via status file.
+# Provides git commit, branch information to build targets via status file.
 # https://bazel.build/docs/user-manual#workspace-status
 common --workspace_status_command=./dev/bazel_buildkite_stamp_vars.sh
 
@@ -58,3 +53,15 @@ test --flaky_test_attempts=2
 # See https://github.com/aspect-build/rules_js/issues/1412
 # Sometimes the build fails due to some flakiness where a npm package fails to be copied
 common --noexperimental_merged_skyframe_analysis_execution
+
+test --build_event_binary_file=build_event_log.bin
+test --build_event_binary_file_path_conversion=false
+test --build_event_binary_file_upload_mode=wait_for_upload_complete
+test --build_event_publish_all_actions=true
+
+build --experimental_execution_log_compact_file=execution_log.zstd
+test --experimental_execution_log_compact_file=execution_log.zstd
+
+# These likely perform faster locally than the overhead of pulling/pushing from/to the remote cache,
+# as well as being able to reduce how much we push to the cache
+common --modify_execution_info=CopyDirectory=+no-remote,CopyToDirectory=+no-remote,CopyFile=+no-remote

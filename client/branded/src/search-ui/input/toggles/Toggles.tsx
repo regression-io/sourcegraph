@@ -12,6 +12,7 @@ import type {
     SearchPatternTypeProps,
 } from '@sourcegraph/shared/src/search'
 import { findFilter, FilterKind } from '@sourcegraph/shared/src/search/query/query'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
 import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 
 import { QueryInputToggle } from './QueryInputToggle'
@@ -24,8 +25,10 @@ export interface TogglesProps
         CaseSensitivityProps,
         SearchModeProps,
         TelemetryProps,
+        TelemetryV2Props,
         Partial<Pick<SubmitSearchProps, 'submitSearch'>> {
     navbarSearchQuery: string
+    defaultPatternType: SearchPatternType
     className?: string
     /**
      * If set to false makes all buttons non-actionable. The main use case for
@@ -44,6 +47,7 @@ export const Toggles: React.FunctionComponent<React.PropsWithChildren<TogglesPro
     const {
         navbarSearchQuery,
         patternType,
+        defaultPatternType,
         setPatternType,
         caseSensitive,
         setCaseSensitivity,
@@ -51,6 +55,7 @@ export const Toggles: React.FunctionComponent<React.PropsWithChildren<TogglesPro
         submitSearch,
         structuralSearchDisabled,
         telemetryService,
+        telemetryRecorder,
     } = props
 
     const submitOnToggle = useCallback(
@@ -68,24 +73,32 @@ export const Toggles: React.FunctionComponent<React.PropsWithChildren<TogglesPro
         const newCaseSensitivity = !caseSensitive
         setCaseSensitivity(newCaseSensitivity)
         submitOnToggle({ newCaseSensitivity })
-    }, [caseSensitive, setCaseSensitivity, submitOnToggle])
+        telemetryRecorder.recordEvent('search.caseSensitive', 'toggle')
+    }, [caseSensitive, setCaseSensitivity, submitOnToggle, telemetryRecorder])
 
     const toggleRegexp = useCallback((): void => {
         const newPatternType =
-            patternType !== SearchPatternType.regexp ? SearchPatternType.regexp : SearchPatternType.keyword
+            patternType !== SearchPatternType.regexp
+                ? SearchPatternType.regexp
+                : // Handle the case where the user has regexp configured as the default pattern type.
+                defaultPatternType === SearchPatternType.regexp
+                ? SearchPatternType.keyword
+                : defaultPatternType
 
         setPatternType(newPatternType)
         submitOnToggle({ newPatternType })
         telemetryService.log('ToggleRegexpPatternType', { currentStatus: patternType === SearchPatternType.regexp })
-    }, [patternType, setPatternType, submitOnToggle, telemetryService])
+        telemetryRecorder.recordEvent('search.regexpPatternType', 'toggle')
+    }, [patternType, defaultPatternType, setPatternType, submitOnToggle, telemetryService, telemetryRecorder])
 
     const toggleStructuralSearch = useCallback((): void => {
         const newPatternType: SearchPatternType =
-            patternType !== SearchPatternType.structural ? SearchPatternType.structural : SearchPatternType.keyword
+            patternType !== SearchPatternType.structural ? SearchPatternType.structural : defaultPatternType
 
         setPatternType(newPatternType)
         submitOnToggle({ newPatternType })
-    }, [patternType, setPatternType, submitOnToggle])
+        telemetryRecorder.recordEvent('search.structuralPatternType', 'toggle')
+    }, [patternType, defaultPatternType, setPatternType, submitOnToggle, telemetryRecorder])
 
     return (
         <div className={classNames(className, styles.toggleContainer)}>

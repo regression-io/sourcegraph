@@ -15,6 +15,7 @@
         // but for some reason it's not recognized when using `svelte-check` and an error
         // is thrown instead.
         'data-testid'?: string
+        'data-scope-button'?: boolean
     } & HTMLButtonAttributes
 
     export let variant: $$Props['variant'] = 'primary'
@@ -27,7 +28,7 @@
 
 <slot name="custom" {buttonClass}>
     <!-- $$restProps holds all the additional props that are passed to the component -->
-    <button class={buttonClass} {...$$restProps} on:click|preventDefault>
+    <button class={buttonClass} type="button" {...$$restProps} on:click>
         <slot />
     </button>
 </slot>

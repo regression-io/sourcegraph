@@ -926,6 +926,13 @@
 					1679051112
 				],
 				"PreCreation": false
+			},
+			"v5.4.0": {
+				"RootID": 1000000027,
+				"LeafIDs": [
+					1679051112
+				],
+				"PreCreation": false
 			}
 		}
 	},
@@ -1890,6 +1897,13 @@
 				"PreCreation": false
 			},
 			"v5.3.0": {
+				"RootID": 1000000033,
+				"LeafIDs": [
+					1686315964
+				],
+				"PreCreation": false
+			},
+			"v5.4.0": {
 				"RootID": 1000000033,
 				"LeafIDs": [
 					1686315964
@@ -11192,6 +11206,47 @@
 				],
 				"IsCreateIndexConcurrently": false,
 				"IndexMetadata": null
+			},
+			{
+				"ID": 1713958707,
+				"Name": "search jobs add index on state col",
+				"UpQuery": "CREATE INDEX IF NOT EXISTS exhaustive_search_jobs_state ON exhaustive_search_jobs (state);\nCREATE INDEX IF NOT EXISTS exhaustive_search_repo_jobs_state ON exhaustive_search_repo_jobs (state);\nCREATE INDEX IF NOT EXISTS exhaustive_search_repo_revision_jobs_state ON exhaustive_search_repo_revision_jobs (state);",
+				"DownQuery": "DROP INDEX IF EXISTS exhaustive_search_jobs_state;\nDROP INDEX IF EXISTS exhaustive_search_repo_jobs_state;\nDROP INDEX IF EXISTS exhaustive_search_repo_revision_jobs_state;",
+				"Privileged": false,
+				"NonIdempotent": false,
+				"Parents": [
+					1709738515,
+					1711003437,
+					1711538234
+				],
+				"IsCreateIndexConcurrently": false,
+				"IndexMetadata": null
+			},
+			{
+				"ID": 1717699555,
+				"Name": "Fix unique index for SCIM external account connection",
+				"UpQuery": "DROP INDEX IF EXISTS user_external_accounts_user_id_scim_service_type;\n\nCREATE UNIQUE INDEX\n    user_external_accounts_user_id_scim_service_type\nON\n    user_external_accounts (user_id, service_type)\nWHERE\n    service_type = 'scim'::text\n    AND deleted_at IS NULL;",
+				"DownQuery": "DROP INDEX IF EXISTS user_external_accounts_user_id_scim_service_type;\n\nCREATE UNIQUE INDEX\n    user_external_accounts_user_id_scim_service_type\nON\n    user_external_accounts (user_id, service_type)\nWHERE\n    service_type = 'scim'::text;",
+				"Privileged": false,
+				"NonIdempotent": false,
+				"Parents": [
+					1713958707
+				],
+				"IsCreateIndexConcurrently": false,
+				"IndexMetadata": null
+			},
+			{
+				"ID": 1719214941,
+				"Name": "notebooks_add_field_pattern_type",
+				"UpQuery": "DO $$\nBEGIN\n    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'pattern_type') THEN\n        CREATE TYPE pattern_type AS ENUM ('keyword', 'literal', 'regexp', 'standard', 'structural');\n    END IF;\nEND\n$$;\n\nALTER TABLE notebooks ADD COLUMN IF NOT EXISTS pattern_type pattern_type NOT NULL DEFAULT 'standard';",
+				"DownQuery": "ALTER TABLE notebooks DROP COLUMN IF EXISTS pattern_type;\nDROP TYPE IF EXISTS pattern_type;",
+				"Privileged": false,
+				"NonIdempotent": false,
+				"Parents": [
+					1717699555
+				],
+				"IsCreateIndexConcurrently": false,
+				"IndexMetadata": null
 			}
 		],
 		"BoundsByRev": {
@@ -11446,6 +11501,13 @@
 					1709738515,
 					1711003437,
 					1711538234
+				],
+				"PreCreation": false
+			},
+			"v5.4.0": {
+				"RootID": 1648051770,
+				"LeafIDs": [
+					1719214941
 				],
 				"PreCreation": false
 			}

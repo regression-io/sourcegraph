@@ -16,10 +16,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sourcegraph/log"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/globals"
+	repogitserver "github.com/sourcegraph/sourcegraph/cmd/repo-updater/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/cmd/repo-updater/internal/phabricator"
 	"github.com/sourcegraph/sourcegraph/cmd/repo-updater/internal/purge"
 	"github.com/sourcegraph/sourcegraph/cmd/repo-updater/internal/repoupdater"
@@ -85,7 +84,7 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 	// bit more to do in this method, though, and the process will be marked ready
 	// further down this function.
 
-	mustRegisterMetrics(log.Scoped("MustRegisterMetrics"), db, dotcom.SourcegraphDotComMode())
+	mustRegisterMetrics(log.Scoped("MustRegisterMetrics"), db)
 
 	store := repos.NewStore(logger.Scoped("store"), db)
 	{
@@ -110,7 +109,7 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 		repos.ObservedSource(sourcerLogger, sourceMetrics),
 	)
 	syncer := repos.NewSyncer(observationCtx, store, src)
-	updateScheduler := scheduler.NewUpdateScheduler(logger, db, gitserver.NewClient("repos.updatescheduler"))
+	updateScheduler := scheduler.NewUpdateScheduler(logger, db, repogitserver.NewRepositoryServiceClient("repoupdater.scheduler"))
 	server := &repoupdater.Server{
 		Logger:    logger,
 		Store:     store,
@@ -131,7 +130,7 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 
 	routines := []goroutine.BackgroundRoutine{
 		makeGRPCServer(logger, server),
-		newUnclonedReposManager(ctx, logger, dotcom.SourcegraphDotComMode(), updateScheduler, store),
+		newUnclonedReposManager(ctx, logger, updateScheduler, store),
 		phabricator.NewRepositorySyncWorker(ctx, db, log.Scoped("PhabricatorRepositorySyncWorker"), store),
 		// Run git fetches scheduler
 		updateScheduler,
@@ -140,7 +139,6 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 	routines = append(routines,
 		syncer.Routines(ctx, store, repos.RunOptions{
 			EnqueueInterval: conf.RepoListUpdateInterval,
-			IsDotCom:        dotcom.SourcegraphDotComMode(),
 			MinSyncInterval: conf.RepoListUpdateInterval,
 		})...,
 	)
@@ -181,9 +179,7 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 	// after being unblocked.
 	ready()
 
-	goroutine.MonitorBackgroundRoutines(ctx, routines...)
-
-	return nil
+	return goroutine.MonitorBackgroundRoutines(ctx, routines...)
 }
 
 func getDB(observationCtx *observation.Context) (database.DB, error) {
@@ -206,9 +202,8 @@ func makeGRPCServer(logger log.Logger, server *repoupdater.Server) goroutine.Bac
 	addr := net.JoinHostPort(host, port)
 	logger.Info("listening", log.String("addr", addr))
 
-	grpcServer := grpc.NewServer(defaults.ServerOptions(logger)...)
+	grpcServer := defaults.NewServer(logger)
 	proto.RegisterRepoUpdaterServiceServer(grpcServer, server)
-	reflection.Register(grpcServer)
 
 	return grpcserver.NewFromAddr(logger.Scoped("repo-updater.grpcserver"), addr, grpcServer)
 }
@@ -335,7 +330,7 @@ func watchSyncer(
 // the uncloned repositories on gitserver and update the scheduler with the list.
 // It also ensures that if any of our indexable repos are missing from the cloned
 // list they will be added for cloning ASAP.
-func newUnclonedReposManager(ctx context.Context, logger log.Logger, isSourcegraphDotCom bool, sched *scheduler.UpdateScheduler, store repos.Store) goroutine.BackgroundRoutine {
+func newUnclonedReposManager(ctx context.Context, logger log.Logger, sched *scheduler.UpdateScheduler, store repos.Store) goroutine.BackgroundRoutine {
 	return goroutine.NewPeriodicGoroutine(
 		actor.WithInternalActor(ctx),
 		goroutine.HandlerFunc(func(ctx context.Context) error {
@@ -346,23 +341,13 @@ func newUnclonedReposManager(ctx context.Context, logger log.Logger, isSourcegra
 
 			baseRepoStore := database.ReposWith(logger, store)
 
-			if isSourcegraphDotCom {
-				// Fetch ALL indexable repos that are NOT cloned so that we can add them to the
-				// scheduler.
-				opts := database.ListSourcegraphDotComIndexableReposOptions{
-					CloneStatus: types.CloneStatusNotCloned,
-				}
-				indexable, err := baseRepoStore.ListSourcegraphDotComIndexableRepos(ctx, opts)
-				if err != nil {
-					return errors.Wrap(err, "listing indexable repos")
-				}
-				// Ensure that uncloned indexable repos are known to the scheduler
-				sched.EnsureScheduled(indexable)
-			}
-
-			// Next, move any repos managed by the scheduler that are uncloned to the front
+			// Move any repos managed by the scheduler that are uncloned to the front
 			// of the queue.
 			managed := sched.ListRepoIDs()
+
+			if len(managed) == 0 {
+				return nil
+			}
 
 			uncloned, err := baseRepoStore.ListMinimalRepos(ctx, database.ReposListOptions{IDs: managed, NoCloned: true})
 			if err != nil {
@@ -383,7 +368,7 @@ func newUnclonedReposManager(ctx context.Context, logger log.Logger, isSourcegra
 // watchAuthzProviders updates authz providers if config changes.
 func watchAuthzProviders(ctx context.Context, db database.DB) {
 	go func() {
-		t := time.NewTicker(providers.RefreshInterval())
+		t := time.NewTicker(providers.RefreshInterval(conf.Get()))
 		for range t.C {
 			allowAccessByDefault, authzProviders, _, _, _ := providers.ProvidersFromConfig(
 				ctx,
@@ -395,7 +380,7 @@ func watchAuthzProviders(ctx context.Context, db database.DB) {
 	}()
 }
 
-func mustRegisterMetrics(logger log.Logger, db dbutil.DB, sourcegraphDotCom bool) {
+func mustRegisterMetrics(logger log.Logger, db dbutil.DB) {
 	scanCount := func(sql string) (float64, error) {
 		row := db.QueryRowContext(context.Background(), sql)
 		var count int64
@@ -484,7 +469,6 @@ select round((select cast(count(*) as float) from latest_state where state = 'er
 SELECT extract(epoch from max(now() - last_sync_at))
 FROM external_services AS es
 WHERE deleted_at IS NULL
-AND NOT cloud_default
 AND last_sync_at IS NOT NULL
 -- Exclude any external services that are currently syncing since it's possible they may sync for more
 -- than our max backoff time.
@@ -510,18 +494,10 @@ AND NOT EXISTS(SELECT FROM external_service_sync_jobs WHERE external_service_id 
 
 	// Count the number of repos owned by site level external services that haven't
 	// been fetched in 8 hours.
-	//
-	// We always return zero for Sourcegraph.com because we currently have a lot of
-	// repos owned by the Starburst service in this state and until that's resolved
-	// it would just be noise.
 	promauto.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "src_repoupdater_stale_repos",
 		Help: "The number of repos that haven't been fetched in at least 8 hours",
 	}, func() float64 {
-		if sourcegraphDotCom {
-			return 0
-		}
-
 		count, err := scanCount(`
 select count(*)
 from gitserver_repos
@@ -531,33 +507,13 @@ where last_fetched < now() - interval '8 hours'
              from external_service_repos
                       join external_services es on external_service_repos.external_service_id = es.id
                       join repo r on external_service_repos.repo_id = r.id
-             where not es.cloud_default
-               and gitserver_repos.repo_id = repo_id
+             where gitserver_repos.repo_id = repo_id
                and es.deleted_at is null
                and r.deleted_at is null
     )
 `)
 		if err != nil {
 			logger.Error("Failed to count stale repos", log.Error(err))
-			return 0
-		}
-		return count
-	})
-
-	// Count the number of repos that are deleted but still cloned on disk. These
-	// repos are eligible to be purged.
-	promauto.NewGaugeFunc(prometheus.GaugeOpts{
-		Name: "src_repoupdater_purgeable_repos",
-		Help: "The number of deleted repos that are still cloned on disk",
-	}, func() float64 {
-		count, err := scanCount(`
-SELECT
-	COALESCE(SUM(cloned), 0)
-FROM
-	repo_statistics
-`)
-		if err != nil {
-			logger.Error("Failed to count purgeable repos", log.Error(err))
 			return 0
 		}
 		return count

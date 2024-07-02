@@ -1,30 +1,40 @@
 <script lang="ts">
-    import { mdiMapSearch } from '@mdi/js'
-
+    // @sg EnableRollout
+    import { afterNavigate, beforeNavigate } from '$app/navigation'
     import Icon from '$lib/Icon.svelte'
+    import LoadingSpinner from '$lib/LoadingSpinner.svelte'
     import FileHeader from '$lib/repo/FileHeader.svelte'
+    import type { TreeEntryWithCommitInfo } from '$lib/repo/FileTable.gql'
+    import FileTable from '$lib/repo/FileTable.svelte'
     import Permalink from '$lib/repo/Permalink.svelte'
+    import Readme from '$lib/repo/Readme.svelte'
     import { createPromiseStore } from '$lib/utils'
+    import { Alert } from '$lib/wildcard'
+
+    import { getRepositoryPageContext } from '../../../../../context'
 
     import type { PageData } from './$types'
-    import FileTable from '$lib/repo/FileTable.svelte'
-    import Readme from '$lib/repo/Readme.svelte'
-    import LoadingSpinner from '$lib/LoadingSpinner.svelte'
-    import { Alert } from '$lib/wildcard'
-    import type { TreeEntryWithCommitInfo } from '$lib/repo/FileTable.gql'
 
     export let data: PageData
 
+    const repositoryContext = getRepositoryPageContext()
     const treeEntriesWithCommitInfo = createPromiseStore<TreeEntryWithCommitInfo[]>()
 
     $: treeEntriesWithCommitInfo.set(data.treeEntriesWithCommitInfo)
+
+    afterNavigate(() => {
+        repositoryContext.set({ directoryPath: data.filePath })
+    })
+    beforeNavigate(() => {
+        repositoryContext.set({})
+    })
 </script>
 
 <svelte:head>
     <title>{data.filePath} - {data.displayRepoName} - Sourcegraph</title>
 </svelte:head>
 
-<FileHeader>
+<FileHeader type="tree" repoName={data.repoName} revision={data.revision} path={data.filePath}>
     <svelte:fragment slot="actions">
         <Permalink commitID={data.resolvedRevision.commitID} />
     </svelte:fragment>
@@ -38,7 +48,7 @@
         {#if result === null}
             <div class="error-wrapper">
                 <div class="circle">
-                    <Icon svgPath={mdiMapSearch} size={80} />
+                    <Icon icon={ILucideSearchX} --icon-size="80px" />
                 </div>
                 <h2>Directory not found</h2>
             </div>
@@ -82,12 +92,13 @@
 <style lang="scss">
     .content {
         flex: 1;
+        overflow: auto;
     }
 
     .header {
         background-color: var(--body-bg);
         position: sticky;
-        top: 2.8rem;
+        top: 0;
         padding: 0.5rem;
         border-bottom: 1px solid var(--border-color);
         margin: 0;

@@ -537,8 +537,9 @@ mod test {
         io::Read,
     };
 
-    use crate::snapshot::{dump_document_with_config, EmitSymbol, EmitSyntax, SnapshotOptions};
     use pretty_assertions::assert_eq;
+
+    use crate::snapshot::{dump_document_with_config, EmitSymbol, EmitSyntax, SnapshotOptions};
 
     fn snapshot_sciptect_documents(doc: &Document, source: &str) -> String {
         dump_document_with_config(
@@ -609,12 +610,13 @@ mod test {
             // As far as I can tell, there is no "matches_snapshot" or similar for `insta`.
             // So we'll just catch the panic for now, push the results and then panic at the end
             // with all the failed files (if applicable)
-            match std::panic::catch_unwind(|| {
+            let panic_or_value = std::panic::catch_unwind(|| {
                 insta::assert_snapshot!(
                     filepath.strip_prefix(&input_dir).unwrap().to_str().unwrap(),
                     snapshot_sciptect_documents(&document, &contents)
                 );
-            }) {
+            });
+            match panic_or_value {
                 Ok(_) => {}
                 Err(_) => failed.push(entry),
             }

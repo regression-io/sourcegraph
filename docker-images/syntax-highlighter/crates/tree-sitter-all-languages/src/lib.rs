@@ -8,11 +8,14 @@ pub enum ParserId {
     Cpp,
     #[allow(non_camel_case_types)]
     C_Sharp,
+    Dart,
     Go,
+    Hack,
     Java,
     Javascript,
     Jsonnet,
     Kotlin,
+    Magik,
     Matlab,
     Nickel,
     Perl,
@@ -26,7 +29,8 @@ pub enum ParserId {
     Xlsg,
     Zig,
 
-    // These two are special cases
+    // These two are special cases since we process them
+    // in a way where they can inherit tree-sitter queries from others languages
     Typescript,
     Tsx,
 }
@@ -37,11 +41,14 @@ impl ParserId {
             ParserId::C => tree_sitter_c::language(),
             ParserId::Cpp => tree_sitter_cpp::language(),
             ParserId::C_Sharp => tree_sitter_c_sharp::language(),
+            ParserId::Dart => tree_sitter_dart::language(),
             ParserId::Go => tree_sitter_go::language(),
+            ParserId::Hack => tree_sitter_hack::language(),
             ParserId::Java => tree_sitter_java::language(),
             ParserId::Javascript => tree_sitter_javascript::language(),
             ParserId::Jsonnet => tree_sitter_jsonnet::language(),
             ParserId::Kotlin => tree_sitter_kotlin::language(),
+            ParserId::Magik => tree_sitter_magik::language(),
             ParserId::Matlab => tree_sitter_matlab::language(),
             ParserId::Nickel => tree_sitter_nickel::language(),
             ParserId::Perl => tree_sitter_perl::language(),
@@ -59,16 +66,25 @@ impl ParserId {
         }
     }
 
+    pub fn get_parser(self) -> tree_sitter::Parser {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(self.language()).expect("Error assigning language to parser, likely a version mismatch between compiled grammar and tree-sitter library.");
+        parser
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "c" => Some(ParserId::C),
             "cpp" => Some(ParserId::Cpp),
             "c_sharp" => Some(ParserId::C_Sharp),
+            "dart" => Some(ParserId::Dart),
             "go" => Some(ParserId::Go),
+            "hack" => Some(ParserId::Hack),
             "java" => Some(ParserId::Java),
             "javascript" => Some(ParserId::Javascript),
             "jsonnet" => Some(ParserId::Jsonnet),
             "kotlin" => Some(ParserId::Kotlin),
+            "magik" => Some(ParserId::Magik),
             "matlab" => Some(ParserId::Matlab),
             "nickel" => Some(ParserId::Nickel),
             "perl" => Some(ParserId::Perl),
@@ -92,11 +108,14 @@ impl ParserId {
             ParserId::C => "c",
             ParserId::Cpp => "cpp",
             ParserId::C_Sharp => "c_sharp",
+            ParserId::Dart => "dart",
             ParserId::Go => "go",
+            ParserId::Hack => "hack",
             ParserId::Java => "java",
             ParserId::Javascript => "javascript",
             ParserId::Jsonnet => "jsonnet",
             ParserId::Kotlin => "kotlin",
+            ParserId::Magik => "magik",
             ParserId::Matlab => "matlab",
             ParserId::Nickel => "nickel",
             ParserId::Perl => "perl",
@@ -135,11 +154,14 @@ impl ParserId {
             "c" => Some(ParserId::C),
             "cpp" => Some(ParserId::Cpp),
             "cs" => Some(ParserId::C_Sharp),
+            "dart" => Some(ParserId::Dart),
             "go" => Some(ParserId::Go),
+            "hack" => Some(ParserId::Hack),
             "java" => Some(ParserId::Java),
             "js" => Some(ParserId::Javascript),
             "jsonnet" => Some(ParserId::Jsonnet),
             "m" => Some(ParserId::Matlab),
+            "magik" => Some(ParserId::Magik),
             "kt" => Some(ParserId::Kotlin),
             "ncl" => Some(ParserId::Nickel),
             "pl" => Some(ParserId::Perl),

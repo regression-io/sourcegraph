@@ -5,7 +5,14 @@ import type { BatchChangesLicenseInfo } from '@sourcegraph/shared/src/testing/ba
 
 import type { TemporarySettingsResult } from './graphql-operations'
 
-export type DeployType = 'kubernetes' | 'docker-container' | 'docker-compose' | 'pure-docker' | 'dev' | 'helm'
+export type DeployType =
+    | 'kubernetes'
+    | 'docker-container'
+    | 'docker-compose'
+    | 'pure-docker'
+    | 'dev'
+    | 'helm'
+    | 'appliance'
 
 /**
  * Defined in cmd/frontend/internal/app/jscontext/jscontext.go JSContext struct
@@ -30,6 +37,7 @@ export interface AuthProvider {
     serviceID: string
     clientID: string
     noSignIn: boolean
+    requiredForAuthz: boolean
 }
 
 /**
@@ -59,7 +67,6 @@ export type SourcegraphContextCurrentUser = Pick<
     | 'latestSettings'
     | 'permissions'
     | 'hasVerifiedEmail'
-    | 'completedPostSignup'
 >
 
 /**
@@ -189,14 +196,21 @@ export interface SourcegraphContext extends Pick<Required<SiteConfiguration>, 'e
 
     batchChangesWebhookLogsEnabled: boolean
 
-    /** Whether cody is enabled site-wide. */
-    codyEnabled: boolean
+    /**
+     * Whether Cody is enabled on this instance. Check
+     * {@link SourcegraphContext.codyEnabledForCurrentUser} to see whether Cody is enabled for the
+     * current user.
+     */
+    codyEnabledOnInstance: boolean
 
-    /** Whether cody is enabled for the user. */
+    /** Whether Cody is enabled for the user. */
     codyEnabledForCurrentUser: boolean
 
-    /** Whether the site requires a verified email for cody. */
+    /** Whether the instance requires a verified email for Cody. */
     codyRequiresVerifiedEmail: boolean
+
+    /** Whether the code search feature is enabled on the instance. */
+    codeSearchEnabledOnInstance: boolean
 
     /** Whether executors are enabled on the site. */
     executorsEnabled: boolean
@@ -230,9 +244,6 @@ export interface SourcegraphContext extends Pick<Required<SiteConfiguration>, 'e
 
     /** Whether the own API is enabled on the Sourcegraph instance */
     ownEnabled: boolean
-
-    /** Whether embeddings are enabled on this site. */
-    embeddingsEnabled: boolean
 
     /** Authentication provider instances in site config. */
     authProviders: AuthProvider[]
@@ -281,7 +292,6 @@ export interface SourcegraphContext extends Pick<Required<SiteConfiguration>, 'e
     /** Contains information about the product license. */
     licenseInfo?: {
         batchChanges?: BatchChangesLicenseInfo
-        features: LicenseFeatures
     }
 
     /** sha256 hashed license key */
@@ -294,6 +304,20 @@ export interface SourcegraphContext extends Pick<Required<SiteConfiguration>, 'e
 
     /** Whether the feedback survey is enabled. */
     disableFeedbackSurvey?: boolean
+
+    /** Metadata related to the SvelteKit app. */
+    svelteKit?: {
+        enabledRoutes: number[]
+        knownRoutes: string[]
+        showToggle: boolean
+    }
+
+    /** Configuration for Cody Pro-tier functionality, if applicable. */
+    frontendCodyProConfig?: {
+        stripePublishableKey: string
+        sscBaseUrl: string
+        useEmbeddedUI: boolean
+    }
 }
 
 export interface BrandAssets {
@@ -301,12 +325,4 @@ export interface BrandAssets {
     logo?: string
     /** The URL to the symbol used as the search icon */
     symbol?: string
-}
-
-/**
- * Defines the license features available.
- */
-export interface LicenseFeatures {
-    codeSearch: boolean
-    cody: boolean
 }

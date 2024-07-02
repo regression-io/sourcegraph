@@ -206,7 +206,6 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 		return err
 	}
 
-	globals.WatchBranding()
 	globals.WatchExternalURL()
 
 	goroutine.Go(func() { bg.CheckRedisCacheEvictionPolicy() })
@@ -322,8 +321,7 @@ func Main(ctx context.Context, observationCtx *observation.Context, ready servic
 	logger.Info(fmt.Sprintf("✱ Sourcegraph is ready at: %s", globals.ExternalURL()))
 	ready()
 
-	goroutine.MonitorBackgroundRoutines(context.Background(), routines...)
-	return nil
+	return goroutine.MonitorBackgroundRoutines(context.Background(), routines...)
 }
 
 func makeExternalAPI(db database.DB, logger sglog.Logger, schema *graphql.Schema, enterprise enterprise.Services, rateLimiter graphqlbackend.LimitWatcher) (goroutine.BackgroundRoutine, error) {

@@ -1,14 +1,16 @@
 <script lang="ts">
     import { decorateQuery } from '$lib/branded'
+    import type { SearchPatternType } from '@sourcegraph/web/src/graphql-operations'
     import EmphasizedLabel from './EmphasizedLabel.svelte'
 
     export let query: string
+    export let patternType: SearchPatternType | undefined = undefined
     export let matches: Set<number> | null = null
 
-    $: decorations = decorateQuery(query)
+    $: decorations = decorateQuery(query, patternType)
 </script>
 
-<span class="text-monospace search-query-link">
+<code class="search-query-link">
     {#if decorations}
         {#each decorations as { key, className, value, token } (key)}
             <span class={className}>
@@ -20,4 +22,4 @@
     {:else}
         {query}
     {/if}
-</span>
+</code>

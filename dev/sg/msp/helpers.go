@@ -1,17 +1,21 @@
 package msp
 
 import (
-	"encoding/json"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/urfave/cli/v2"
+	"golang.org/x/exp/maps"
 
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/clouddeploy"
+	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/operationdocs/diagram"
+	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/operationdocs/terraform"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/spec"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/stacks/cloudrun"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/terraformcloud"
@@ -150,9 +154,48 @@ func syncEnvironmentWorkspaces(c *cli.Context, tfc *terraformcloud.Client, servi
 	return std.Out.WriteMarkdown(summary.String())
 }
 
+type toolingLockfileChecker struct {
+	version    string
+	categories map[spec.EnvironmentCategory]*sync.Once
+}
+
+// checkCategoryVersion performs warning checks for the given environment category's
+// tooling version.
+//
+// Requires UseManagedServicesRepo.
+func (c *toolingLockfileChecker) checkCategoryVersion(out *std.Output, category spec.EnvironmentCategory) {
+	var categoryOnce *sync.Once
+	if o, ok := c.categories[category]; ok {
+		categoryOnce = o
+	} else {
+		categoryOnce = &sync.Once{}
+		c.categories[category] = categoryOnce
+	}
+
+	categoryOnce.Do(func() {
+		lockedSgVersion, err := msprepo.ToolingLockfileVersion(category)
+		if err != nil {
+			out.WriteWarningf("Unable to determine locked 'sg' version for category %q: %s",
+				category, err.Error())
+		} else if lockedSgVersion != c.version {
+			out.WriteWarningf(`Lockfile for category %q declares 'sg' version %q, you are using %q - generated outputs may differ from what is expected.
+If there is a diff in the generated output, try running the following:`,
+				category, lockedSgVersion, c.version)
+			_ = out.WriteCode("bash", fmt.Sprintf(
+				"sg update -release %q &&\n  SG_SKIP_AUTO_UPDATE=true sg msp generate -all -category %q",
+				lockedSgVersion, string(category)))
+		}
+	})
+}
+
 type generateTerraformOptions struct {
+	// tooling is used to validate the current tooling version matches what
+	// is expected, and warn the user if there is a mismatch.
+	tooling *toolingLockfileChecker
 	// targetEnv generates the specified env only, otherwise generates all
 	targetEnv string
+	// targetCategory generates the specified category only
+	targetCategory spec.EnvironmentCategory
 	// stableGenerate disables updating of any values that are evaluated at
 	// generation time
 	stableGenerate bool
@@ -176,8 +219,20 @@ func generateTerraform(service *spec.Spec, opts generateTerraformOptions) error 
 	for _, env := range envs {
 		env := env
 
-		pending := std.Out.Pending(output.Styledf(output.StylePending,
-			"[%s] Preparing Terraform for environment %q", serviceID, env.ID))
+		if opts.targetCategory != "" && env.Category != opts.targetCategory {
+			// Quietly skip environments that don't match specified category
+			std.Out.WriteLine(output.StyleSuggestion.Linef(
+				"[%s] Skipping non-%q environment %q (category %q)",
+				serviceID, opts.targetCategory, env.ID, env.Category))
+			continue
+		}
+
+		// Check tooling version and emit warnings
+		opts.tooling.checkCategoryVersion(std.Out, env.Category)
+
+		// Then, start our actual work
+		pending := std.Out.Pending(output.StylePending.Linef(
+			"[%s] Preparing Terraform for %q environment %q", serviceID, env.Category, env.ID))
 		renderer := managedservicesplatform.Renderer{
 			OutputDir:      filepath.Join(filepath.Dir(serviceSpecPath), "terraform", env.ID),
 			StableGenerate: opts.stableGenerate,
@@ -202,39 +257,18 @@ func generateTerraform(service *spec.Spec, opts generateTerraformOptions) error 
 			return err
 		}
 
-		pending.Updatef("[%s] Generating Terraform assets in %q for environment %q...",
-			serviceID, renderer.OutputDir, env.ID)
+		pending.Updatef("[%s] Generating Terraform assets in %q for %q environment %q...",
+			serviceID, renderer.OutputDir, env.Category, env.ID)
 		if err := cdktf.Synthesize(); err != nil {
 			return err
 		}
 
-		if rollout := service.BuildRolloutPipelineConfiguration(env); rollout != nil {
+		// Generate additional rollouts assets IFF this is the final stage of
+		// a rollout pipeline.
+		if rollout := service.BuildRolloutPipelineConfiguration(env); rollout.IsFinalStage() {
 			pending.Updatef("[%s] Building rollout pipeline configurations for environment %q...", serviceID, env.ID)
 
-			// First, we generate the Cloud Deploy configuration file with
-			// additional configuration for the rollout pipeline that we can't
-			// yet provide with Terraform. In the future, we can hopefully
-			// replace this with a pure-Terraform version.
-			region := cloudrun.GCPRegion // region is currently fixed
-			deploySpec, err := clouddeploy.RenderSpec(
-				service.Service,
-				service.Build,
-				*rollout,
-				region)
-			if err != nil {
-				return errors.Wrap(err, "render Cloud Deploy configuration file")
-			}
-			deploySpecFilename := fmt.Sprintf("rollout-%s.clouddeploy.yaml", region)
-			comment := generateCloudDeployDocstring(env.ProjectID, serviceID, region, deploySpecFilename)
-			if err := os.WriteFile(
-				filepath.Join(filepath.Dir(serviceSpecPath), deploySpecFilename),
-				append([]byte(comment), deploySpec.Bytes()...),
-				0644,
-			); err != nil {
-				return errors.Wrap(err, "write Cloud Deploy configuration file")
-			}
-
-			// Next, we generate skaffold.yaml archive for upload to GCS. See
+			// We generate skaffold.yaml archive for upload to GCS. See
 			// cloudrun.ScaffoldSourceFile docstring for more on why we need
 			// to generate this separately. This step will likely always be
 			// rquired.
@@ -246,56 +280,84 @@ func generateTerraform(service *spec.Spec, opts generateTerraformOptions) error 
 			if err := os.WriteFile(skaffoldObjectPath, skaffoldObject.Bytes(), 0644); err != nil {
 				return errors.Wrap(err, "write Cloud Run custom target skaffold YAML archive")
 			}
+		}
 
+		// We must persist diagrams somewhere for reference in Notion, since
+		// Notion does not allow us to upload files via API.
+		// https://developers.notion.com/docs/working-with-files-and-media#uploading-files-and-media-via-the-notion-api
+		pending.Updatef("[%s] Generating architecture diagrams for environment %q...", serviceID, env.ID)
+		d, err := diagram.New()
+		if err != nil {
+			return errors.Wrap(err, "initialize architecture diagram")
+		}
+		if err = d.Generate(service, env.ID); err != nil {
+			return errors.Wrap(err, "generate architecture diagram")
+		}
+		svg, err := d.Render()
+		if err != nil {
+			return errors.Wrap(err, "render architecture diagram")
+		}
+
+		diagramDir := filepath.Join(filepath.Dir(serviceSpecPath), "diagrams")
+		_ = os.MkdirAll(diagramDir, os.ModePerm)
+
+		diagramFileName := fmt.Sprintf("%s.svg", env.ID)
+		if err := os.WriteFile(filepath.Join(diagramDir, diagramFileName), svg, 0o644); err != nil {
+			return errors.Wrap(err, "write architecture diagram")
+		}
+
+		// GitHub file view for SVG sucks, so also generate a Markdown file
+		// with nothing but a view of the image, for easier viewing in GitHub
+		// and linking from Notion.
+		diagramViewFileName := fmt.Sprintf("%s.md", env.ID)
+		if err := os.WriteFile(
+			filepath.Join(diagramDir, diagramViewFileName),
+			[]byte(fmt.Sprintf("![architecture diagram](%s)\n", diagramFileName)),
+			0o644,
+		); err != nil {
+			return errors.Wrap(err, "write architecture diagram view")
 		}
 
 		pending.Complete(output.Styledf(output.StyleSuccess,
-			"[%s] Infrastructure assets generated in %q!", serviceID, renderer.OutputDir))
+			"[%s] Category %q environment %q infrastructure assets generated!",
+			serviceID, env.Category, env.ID))
 	}
 
 	return nil
 }
 
-func isHandbookRepo(relPath string) error {
-	path, err := filepath.Abs(relPath)
-	if err != nil {
-		return errors.Wrapf(err, "unable to infer absolute path of %q", relPath)
+func collectAlertPolicies(svc *spec.Spec) (map[string]terraform.AlertPolicy, error) {
+	// Deduplicate alerts across environments into a single map
+	collectedAlerts := make(map[string]terraform.AlertPolicy)
+	for _, env := range svc.ListEnvironmentIDs() {
+		// Parse the generated alert policies to create alerting docs
+		monitoringPath := msprepo.ServiceStackCDKTFPath(svc.Service.ID, env, "monitoring")
+		monitoring, err := terraform.ParseMonitoringCDKTF(monitoringPath)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(collectedAlerts, monitoring.ResourceType.GoogleMonitoringAlertPolicy)
 	}
-
-	// https://sourcegraph.com/github.com/sourcegraph/handbook/-/blob/package.json?L2=
-	const handbookPackageName = "@sourcegraph/handbook.sourcegraph.com"
-
-	packageJSONData, err := os.ReadFile(filepath.Join(path, "package.json"))
-	if err != nil {
-		return errors.Wrap(err, "expected package.json")
-	}
-
-	var packageJSON struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(packageJSONData, &packageJSON); err != nil {
-		return errors.Wrap(err, "parse package.json")
-	}
-	if packageJSON.Name == handbookPackageName {
-		return nil
-	}
-	return errors.Newf("unexpected package %q", packageJSON.Name)
+	return collectedAlerts, nil
 }
 
-func generateCloudDeployDocstring(projectID, serviceID, gcpRegion, cloudDeployFilename string) string {
-	return fmt.Sprintf(`# DO NOT EDIT; generated by 'sg msp generate'
-#
-# This file defines additional Cloud Deploy configuration that is not yet available in Terraform.
-# Apply this using the following command:
-#
-#   gcloud deploy apply --project=%[1]s --region=%[3]s --file=%[4]s
-#
-# Releases can be created using the following command, which can be added to CI pipelines:
-#
-#   gcloud deploy releases create $RELEASE_NAME --labels="commit=$COMMIT,author=$AUTHOR" --deploy-parameters="customTarget/tag=$TAG" --project=%[1]s --region=%[3]s --delivery-pipeline=%[2]s-%[3]s-rollout --source='gs://%[1]s-cloudrun-skaffold/source.tar.gz'
-#
-# The secret 'cloud_deploy_releaser_service_account_id' provides the ID of a service account
-# that can be used to provision workload auth, for example https://sourcegraph.sourcegraph.com/github.com/sourcegraph/infrastructure/-/blob/managed-services/continuous-deployment-pipeline/main.tf?L5-20
-`, // TODO improve the releases DX
-		projectID, serviceID, gcpRegion, cloudDeployFilename)
+// sortSlice sorts a slice of elements and returns it, for ease of chaining.
+func sortSlice[S ~[]E, E cmp.Ordered](s S) S {
+	slices.Sort(s)
+	return s
+}
+
+// maybeAddSuggestion adds suggestions to errors that are known to be related to
+// problems that can be resolved by referring to the service Notion page. If
+// the service doesn't have one, or if the error doesn't match any known patterns,
+// the error is returned as-is.
+func maybeAddSuggestion(svc spec.ServiceSpec, err error) error {
+	if svc.NotionPageID == nil {
+		return err
+	}
+	if strings.Contains(err.Error(), "PermissionDenied") {
+		return errors.Wrapf(err, "possible permissions error, ensure you have the prerequisite Entitle grants mentioned in %s",
+			svc.GetHandbookPageURL())
+	}
+	return err
 }

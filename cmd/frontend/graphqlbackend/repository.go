@@ -28,6 +28,7 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/gitserver/gitdomain"
 	"github.com/sourcegraph/sourcegraph/internal/gitserver/protocol"
 	"github.com/sourcegraph/sourcegraph/internal/gqlutil"
+	"github.com/sourcegraph/sourcegraph/internal/perforce"
 	"github.com/sourcegraph/sourcegraph/internal/trace"
 	"github.com/sourcegraph/sourcegraph/internal/types"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
@@ -299,7 +300,7 @@ func (r *RepositoryResolver) Commit(ctx context.Context, args *RepositoryCommitA
 
 	commitID, err := backend.NewRepos(r.logger, r.db, r.gitserverClient).ResolveRev(ctx, r.name, args.Rev)
 	if err != nil {
-		if errors.HasType(err, &gitdomain.RevisionNotFoundError{}) {
+		if errors.HasType[*gitdomain.RevisionNotFoundError](err) {
 			return nil, nil
 		}
 		return nil, err
@@ -344,10 +345,40 @@ func (r *RepositoryResolver) Changelist(ctx context.Context, args *RepositoryCha
 		return nil, err
 	}
 
+	// Changelists only exist for perforce repos.
+	if repo.ExternalRepo.ServiceType != extsvc.TypePerforce {
+		return nil, nil
+	}
+
 	rc, err := r.db.RepoCommitsChangelists().GetRepoCommitChangelist(ctx, repo.ID, cid)
 	if err != nil {
+		// Not found could mean either the mapper has some bug, is currently
+		// broken, or hasn't run yet.
+		// We take a slow path here to check if we can find the commit in the repo.
 		if errcode.IsNotFound(err) {
-			return nil, nil
+			r.logger.Debug("failed to find changelist ID - trying to find it via log", log.String("args.CID", args.CID))
+			messageQuery := fmt.Sprintf("change = %d]", cid)
+			cs, err := r.gitserverClient.Commits(ctx, r.name, gitserver.CommitsOptions{
+				AllRefs:      true,
+				MessageQuery: messageQuery,
+				N:            1,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if len(cs) == 0 {
+				return nil, nil
+			}
+			cid, err := perforce.GetP4ChangelistID(string(cs[0].Message))
+			if err != nil {
+				tr.AddEvent("failed to parse changelist", attribute.String("error", err.Error()))
+				return nil, nil
+			}
+			return newPerforceChangelistResolver(
+				r,
+				cid,
+				string(cs[0].ID),
+			), nil
 		}
 		return nil, err
 	}
@@ -370,7 +401,7 @@ func (r *RepositoryResolver) FirstEverCommit(ctx context.Context) (_ *GitCommitR
 
 	commit, err := r.gitserverClient.FirstEverCommit(ctx, repo.Name)
 	if err != nil {
-		if errors.HasType(err, &gitdomain.RevisionNotFoundError{}) {
+		if errors.HasType[*gitdomain.RevisionNotFoundError](err) {
 			return nil, nil
 		}
 		return nil, err
@@ -618,7 +649,7 @@ func (r *schemaResolver) ResolvePhabricatorDiff(ctx context.Context, args *struc
 	}
 
 	// If we already created the commit
-	if commit, err := getCommit(); commit != nil || (err != nil && !errors.HasType(err, &gitdomain.RevisionNotFoundError{})) {
+	if commit, err := getCommit(); commit != nil || (err != nil && !errors.HasType[*gitdomain.RevisionNotFoundError](err)) {
 		return commit, err
 	}
 
@@ -777,7 +808,7 @@ func (r *RepositoryResolver) getLinker(ctx context.Context) (externallink.Reposi
 
 		defaultBranch := ""
 		if defaultBranchResolver != nil {
-			defaultBranch = defaultBranchResolver.name
+			defaultBranch = defaultBranchResolver.Name()
 		}
 
 		repo, err := r.getRepo(ctx)

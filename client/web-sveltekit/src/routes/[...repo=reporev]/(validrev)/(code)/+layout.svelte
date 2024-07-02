@@ -1,32 +1,69 @@
-<script lang="ts">
-    import { onMount, tick } from 'svelte'
+<script context="module" lang="ts">
+    import type { Keys } from '$lib/Hotkey'
+    import type { Capture as HistoryCapture } from '$lib/repo/HistoryPanel.svelte'
+    import { TELEMETRY_RECORDER } from '$lib/telemetry'
 
-    import { afterNavigate, disableScrollHandling, goto } from '$app/navigation'
-    import { page } from '$app/stores'
-    import { isErrorLike } from '$lib/common'
-    import LoadingSpinner from '$lib/LoadingSpinner.svelte'
-    import { fetchSidebarFileTree } from '$lib/repo/api/tree'
-    import HistoryPanel, { type Capture as HistoryCapture } from '$lib/repo/HistoryPanel.svelte'
-    import LastCommit from '$lib/repo/LastCommit.svelte'
-    import SidebarToggleButton from '$lib/repo/SidebarToggleButton.svelte'
-    import { sidebarOpen } from '$lib/repo/stores'
-    import Separator, { getSeparatorPosition } from '$lib/Separator.svelte'
-    import { scrollAll } from '$lib/stores'
-    import TabPanel from '$lib/TabPanel.svelte'
-    import Tabs from '$lib/Tabs.svelte'
-    import { Alert } from '$lib/wildcard'
-    import type { LastCommitFragment } from '$testing/graphql-type-mocks'
-
-    import type { LayoutData, Snapshot } from './$types'
-    import FileTree from './FileTree.svelte'
-    import { createFileTreeStore } from './fileTreeStore'
-    import { type GitHistory_HistoryConnection } from './layout.gql'
+    enum TabPanels {
+        History,
+        References,
+    }
 
     interface Capture {
         selectedTab: number | null
         historyPanel: HistoryCapture
-        scrollTop: number
     }
+
+    // Not ideal solution, [TODO] Improve Tabs component API in order
+    // to expose more info about nature of switch tab / close tab actions
+    function trackHistoryPanelTabAction(selectedTab: number | null, nextSelectedTab: number | null) {
+        if (nextSelectedTab === 0) {
+            TELEMETRY_RECORDER.recordEvent('repo.historyPanel', 'show')
+            return
+        }
+
+        if (nextSelectedTab === null && selectedTab == 0) {
+            TELEMETRY_RECORDER.recordEvent('repo.historyPanel', 'hide')
+            return
+        }
+    }
+
+    const historyHotkey: Keys = {
+        key: 'alt+h',
+    }
+
+    const referenceHotkey: Keys = {
+        key: 'alt+r',
+    }
+</script>
+
+<script lang="ts">
+    import { tick } from 'svelte'
+
+    import { afterNavigate, goto } from '$app/navigation'
+    import { page } from '$app/stores'
+    import { isErrorLike, SourcegraphURL } from '$lib/common'
+    import { openFuzzyFinder } from '$lib/fuzzyfinder/FuzzyFinderContainer.svelte'
+    import { filesHotkey } from '$lib/fuzzyfinder/keys'
+    import Icon from '$lib/Icon.svelte'
+    import KeyboardShortcut from '$lib/KeyboardShortcut.svelte'
+    import LoadingSpinner from '$lib/LoadingSpinner.svelte'
+    import { fetchSidebarFileTree } from '$lib/repo/api/tree'
+    import HistoryPanel from '$lib/repo/HistoryPanel.svelte'
+    import LastCommit from '$lib/repo/LastCommit.svelte'
+    import TabPanel from '$lib/TabPanel.svelte'
+    import Tabs from '$lib/Tabs.svelte'
+    import Tooltip from '$lib/Tooltip.svelte'
+    import { Alert, PanelGroup, Panel, PanelResizeHandle, Button } from '$lib/wildcard'
+    import { getButtonClassName } from '$lib/wildcard/Button'
+    import type { LastCommitFragment } from '$testing/graphql-type-mocks'
+
+    import RepositoryRevPicker from '../RepositoryRevPicker.svelte'
+
+    import type { LayoutData, Snapshot } from './$types'
+    import FileTree from './FileTree.svelte'
+    import { createFileTreeStore } from './fileTreeStore'
+    import type { GitHistory_HistoryConnection, RepoPage_ReferencesLocationConnection } from './layout.gql'
+    import ReferencePanel from './ReferencePanel.svelte'
 
     export let data: LayoutData
 
@@ -35,17 +72,12 @@
             return {
                 selectedTab,
                 historyPanel: historyPanel?.capture(),
-                // This works because this specific page is fully scrollable
-                scrollTop: window.scrollY,
             }
         },
         async restore(data) {
             selectedTab = data.selectedTab
-            // Wait until DOM was updated
+            // Wait until DOM was updated to possibly show the history panel
             await tick()
-            // `restore` is called before `afterNavigate`, which resets the scroll position
-            // Restore the scroll position after the componentent was updated
-            window.scrollTo(0, data.scrollTop)
 
             // Restore history panel state if it is open
             if (data.historyPanel) {
@@ -54,21 +86,14 @@
         },
     }
 
-    async function selectTab(event: { detail: number | null }) {
-        if (event.detail === null) {
-            const url = new URL($page.url)
-            url.searchParams.delete('rev')
-            await goto(url, { replaceState: true, keepFocus: true, noScroll: true })
-        }
-        selectedTab = event.detail
-    }
-
-    const fileTreeStore = createFileTreeStore({ fetchFileTreeData: fetchSidebarFileTree })
-    let selectedTab: number | null = null
+    let bottomPanel: Panel
+    let fileTreeSidePanel: Panel
     let historyPanel: HistoryPanel
-    let rootElement: HTMLElement | null = null
-    let commitHistory: GitHistory_HistoryConnection | null
+    let selectedTab: number | null = null
     let lastCommit: LastCommitFragment | null
+    let commitHistory: GitHistory_HistoryConnection | null
+    let references: RepoPage_ReferencesLocationConnection | null
+    const fileTreeStore = createFileTreeStore({ fetchFileTreeData: fetchSidebarFileTree })
 
     $: ({ revision = '', parentPath, repoName, resolvedRevision } = data)
     $: fileTreeStore.set({ repoName, revision: resolvedRevision.commitID, path: parentPath })
@@ -82,154 +107,368 @@
     }
 
     $: if (!!lastCommitQuery) {
-        // Reset commit history when the query observable changes. Without
-        // this we are showing the commit history of the previously selected
-        // file/folder until the new commit history is loaded.
+        // Reset last commit when the query observable changes. Without
+        // this we are showing the last commit of the previously selected
+        // file/folder until the last commit is loaded.
         lastCommit = null
     }
 
     $: commitHistory = $commitHistoryQuery?.data?.repository?.commit?.ancestors ?? null
     $: lastCommit = $lastCommitQuery?.data?.repository?.lastCommit?.ancestors?.nodes[0] ?? null
 
-    const sidebarSize = getSeparatorPosition('repo-sidebar', 0.2)
-    $: sidebarWidth = `max(200px, ${$sidebarSize * 100}%)`
+    // The observable query to fetch references (due to infinite scrolling)
+    $: sgURL = SourcegraphURL.from($page.url)
+    $: selectedLine = sgURL.lineRange
+    $: referenceQuery =
+        sgURL.viewState === 'references' && selectedLine?.line ? data.getReferenceStore(selectedLine) : null
+    $: references = $referenceQuery?.data?.repository?.commit?.blob?.lsif?.references ?? null
 
-    onMount(() => {
-        // We want the whole page to be scrollable and hide page and repo navigation
-        scrollAll.set(true)
-        return () => scrollAll.set(false)
-    })
+    afterNavigate(async () => {
+        // We need to wait for referenceQuery to be updated before checking its state
+        await tick()
 
-    afterNavigate(() => {
-        // When navigating to a new page we want to ensure two things:
-        // - The file sidebar doesn't move. It feels bad when you clicked on a file entry
-        //   and the click target moves away because the page is scrolled all the way to the top.
-        // - The beginning of the content should be visible (e.g. the top of the file or the
-        //   top of the file table).
-        // In other words, we want to scroll to the top but not all the way
-
-        // Prevents SvelteKit from resetting the scroll position to the very top of the page
-        disableScrollHandling()
-
-        if (rootElement) {
-            // Because the whole page is scrollable we can get the current scroll position from
-            // the window object
-            const top = rootElement.offsetTop
-            if (window.scrollY > top) {
-                // Reset scroll to top of the content
-                window.scrollTo(0, top)
-            }
+        // todo(fkling): Figure out a proper way to represent bottom panel state
+        if (sgURL.viewState === 'references') {
+            selectedTab = TabPanels.References
+        } else if ($page.url.searchParams.has('rev')) {
+            // The file view/history panel use the 'rev' parameter to specify the commit to load
+            selectedTab = TabPanels.History
+        } else if (selectedTab === TabPanels.References) {
+            // Close references panel when navigating to a URL that doesn't have the 'references' view state
+            selectedTab = null
         }
     })
+
+    function selectTab(event: { detail: number | null }) {
+        trackHistoryPanelTabAction(selectedTab, event.detail)
+
+        if (event.detail === null) {
+            handleBottomPanelCollapse().catch(() => {})
+        }
+        selectedTab = event.detail
+    }
+
+    function handleBottomPanelExpand() {
+        if (selectedTab == null) {
+            selectedTab = 0
+        }
+    }
+
+    async function handleBottomPanelCollapse() {
+        // Removing the URL parameter causes the diff view to close
+        if ($page.url.searchParams.has('rev')) {
+            const url = new URL($page.url)
+            url.searchParams.delete('rev')
+            await goto(url, { replaceState: true, keepFocus: true, noScroll: true })
+        }
+        selectedTab = null
+    }
+
+    function toggleFileSidePanel() {
+        if (fileTreeSidePanel.isExpanded()) {
+            fileTreeSidePanel.collapse()
+        } else {
+            fileTreeSidePanel.expand()
+        }
+    }
+
+    $: {
+        if (selectedTab == null) {
+            bottomPanel?.collapse()
+        } else if (!bottomPanel?.isExpanded()) {
+            bottomPanel?.expand()
+        }
+    }
+    const sidebarButtonClass = getButtonClassName({ variant: 'secondary', outline: true, size: 'sm' })
 </script>
 
-<section bind:this={rootElement}>
-    <div class="sidebar" class:open={$sidebarOpen} style:min-width={sidebarWidth} style:max-width={sidebarWidth}>
-        <h3>
-            <SidebarToggleButton />&nbsp; Files
-        </h3>
-        {#if $fileTreeStore}
-            {#if isErrorLike($fileTreeStore)}
-                <Alert variant="danger">
-                    Unable to fetch file tree data:
-                    {$fileTreeStore.message}
-                </Alert>
-            {:else}
-                <FileTree {repoName} {revision} treeProvider={$fileTreeStore} selectedPath={$page.params.path ?? ''} />
-            {/if}
-        {:else}
-            <LoadingSpinner center={false} />
-        {/if}
-    </div>
-    {#if $sidebarOpen}
-        <Separator currentPosition={sidebarSize} />
-    {/if}
-    <div class="main">
-        <slot />
-        <div class="bottom-panel" class:open={selectedTab !== null}>
-            <Tabs selected={selectedTab} toggable on:select={selectTab}>
-                <TabPanel title="History">
-                    {#key $page.params.path}
-                        <HistoryPanel
-                            bind:this={historyPanel}
-                            history={commitHistory}
-                            loading={$commitHistoryQuery?.fetching ?? true}
-                            fetchMore={commitHistoryQuery.fetchMore}
-                            enableInlineDiffs={$page.route.id?.includes('/blob/') ?? false}
+<PanelGroup id="blob-page-panels" direction="horizontal">
+    <Panel
+        bind:this={fileTreeSidePanel}
+        id="sidebar-panel"
+        order={1}
+        defaultSize={1}
+        minSize={15}
+        maxSize={35}
+        collapsible
+        collapsedSize={1}
+        let:isCollapsed
+    >
+        <div class="sidebar" class:collapsed={isCollapsed}>
+            <header>
+                <Tooltip tooltip="{isCollapsed ? 'Open' : 'Close'} sidebar">
+                    <button class="{sidebarButtonClass} collapse-button" on:click={toggleFileSidePanel}>
+                        <Icon icon={isCollapsed ? ILucidePanelLeftOpen : ILucidePanelLeftClose} inline aria-hidden />
+                    </button>
+                </Tooltip>
+
+                <RepositoryRevPicker
+                    repoURL={data.repoURL}
+                    revision={data.revision}
+                    resolvedRevision={data.resolvedRevision}
+                    getRepositoryBranches={data.getRepoBranches}
+                    getRepositoryCommits={data.getRepoCommits}
+                    getRepositoryTags={data.getRepoTags}
+                />
+
+                <Tooltip tooltip={isCollapsed ? 'Open search fuzzy finder' : ''}>
+                    <button class="{sidebarButtonClass} search-files-button" on:click={() => openFuzzyFinder('files')}>
+                        {#if isCollapsed}
+                            <Icon icon={ILucideSquareSlash} inline aria-hidden />
+                        {:else}
+                            <span>Search files</span>
+                            <KeyboardShortcut shortcut={filesHotkey} />
+                        {/if}
+                    </button>
+                </Tooltip>
+            </header>
+
+            <div class="sidebar-file-tree">
+                {#if $fileTreeStore}
+                    {#if isErrorLike($fileTreeStore)}
+                        <Alert variant="danger">
+                            Unable to fetch file tree data:
+                            {$fileTreeStore.message}
+                        </Alert>
+                    {:else}
+                        <FileTree
+                            {repoName}
+                            {revision}
+                            treeProvider={$fileTreeStore}
+                            selectedPath={data.filePath ?? ''}
                         />
-                    {/key}
-                </TabPanel>
-            </Tabs>
-            {#if lastCommit && selectedTab === null}
-                <LastCommit {lastCommit} />
-            {/if}
+                    {/if}
+                {:else}
+                    <LoadingSpinner center={false} />
+                {/if}
+            </div>
         </div>
-    </div>
-</section>
+    </Panel>
+
+    <PanelResizeHandle id="blob-page-panels-separator" />
+
+    <Panel id="blob-content-panels" order={2}>
+        <PanelGroup id="content-panels" direction="vertical">
+            <Panel id="main-content-panel" order={1}>
+                <slot />
+            </Panel>
+            <PanelResizeHandle />
+            <Panel
+                bind:this={bottomPanel}
+                id="bottom-actions-panel"
+                order={2}
+                defaultSize={1}
+                minSize={20}
+                maxSize={50}
+                collapsible
+                collapsedSize={1}
+                onExpand={handleBottomPanelExpand}
+                onCollapse={handleBottomPanelCollapse}
+                let:isCollapsed
+            >
+                <div class="bottom-panel" class:collapsed={isCollapsed}>
+                    <Tabs selected={selectedTab} toggable on:select={selectTab}>
+                        <svelte:fragment slot="header-actions">
+                            {#if !isCollapsed}
+                                <Button
+                                    variant="text"
+                                    size="sm"
+                                    aria-label="Hide bottom panel"
+                                    on:click={handleBottomPanelCollapse}
+                                >
+                                    <Icon icon={ILucideArrowDownFromLine} inline aria-hidden /> Hide
+                                </Button>
+                            {/if}
+                        </svelte:fragment>
+                        <TabPanel title="History" shortcut={historyHotkey}>
+                            {#key data.filePath}
+                                <HistoryPanel
+                                    bind:this={historyPanel}
+                                    history={commitHistory}
+                                    loading={$commitHistoryQuery?.fetching ?? true}
+                                    fetchMore={commitHistoryQuery.fetchMore}
+                                    enableInlineDiff={$page.data.enableInlineDiff}
+                                    enableViewAtCommit={$page.data.enableViewAtCommit}
+                                />
+                            {/key}
+                        </TabPanel>
+                        <TabPanel title="References" shortcut={referenceHotkey}>
+                            {#if !referenceQuery}
+                                <div class="info">
+                                    <Alert variant="info"
+                                        >Hover over a symbol and click "Find references" to find references to the
+                                        symbol.</Alert
+                                    >
+                                </div>
+                            {:else if $referenceQuery && !$referenceQuery.fetching && (!references || references.nodes.length === 0)}
+                                <div class="info">
+                                    <Alert variant="info">No references found.</Alert>
+                                </div>
+                            {:else}
+                                <ReferencePanel
+                                    connection={references}
+                                    loading={$referenceQuery?.fetching ?? false}
+                                    on:more={referenceQuery?.fetchMore}
+                                />
+                            {/if}
+                        </TabPanel>
+                    </Tabs>
+                    {#if lastCommit && isCollapsed}
+                        <div class="last-commit">
+                            <LastCommit {lastCommit} />
+                        </div>
+                    {/if}
+                </div>
+            </Panel>
+        </PanelGroup>
+    </Panel>
+</PanelGroup>
 
 <style lang="scss">
-    section {
-        display: flex;
-        flex: 1;
-        flex-shrink: 0;
+    :global([data-panel-group-id='blob-page-panels']) {
+        overflow: hidden;
         background-color: var(--code-bg);
-        min-height: 100vh;
+    }
+
+    // Forcing the left sidebar panel (file-tree) to be over
+    // right content panel to make sure that box-shadow of the
+    // sidebar is rendered over content panel.
+    :global([data-panel-id='sidebar-panel']) {
+        z-index: 1;
+        isolation: isolate;
+        box-shadow: var(--sidebar-shadow);
+        min-width: 2.92rem;
+    }
+
+    :global([data-panel-id='blob-content-panels']) {
+        z-index: 0;
+        isolation: isolate;
+    }
+
+    :global([data-panel-resize-handle-id='blob-page-panels-separator']) {
+        &::before {
+            // Even though side-panel shadow should be rendered over
+            // the right content panel, resize handle still should be rendered
+            // over any panel elements
+            z-index: 2 !important;
+        }
     }
 
     .sidebar {
-        &.open {
-            display: flex;
-            flex-direction: column;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background-color: var(--color-bg-1);
+
+        header {
+            display: grid;
+            grid-template-columns: min-content 1fr;
+            grid-template-areas:
+                'collapse-button rev-picker'
+                'search-files search-files';
+            gap: 0.375rem;
+            padding: 0.5rem;
+
+            .collapse-button {
+                grid-area: collapse-button;
+            }
+
+            :global([data-repo-rev-picker-trigger]) {
+                grid-area: rev-picker;
+                min-width: 0;
+            }
+
+            .search-files-button {
+                grid-area: search-files;
+
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.25rem;
+
+                span {
+                    white-space: nowrap;
+                    text-overflow: ellipsis;
+                    overflow: hidden;
+                    flex-grow: 1;
+                    flex-shrink: 1;
+                    text-align: left;
+                }
+            }
         }
-        display: none;
-        overflow: hidden;
-        background-color: var(--body-bg);
-        padding: 0.5rem;
-        padding-bottom: 0;
-        position: sticky;
-        top: 0px;
-        max-height: 100vh;
+
+        .sidebar-file-tree {
+            flex-grow: 1;
+            min-height: 0;
+            overflow: auto;
+            padding: 0.25rem 0 0.5rem 0;
+            border-top: 1px solid var(--border-color);
+        }
+
+        &.collapsed {
+            header {
+                grid-template-columns: min-content;
+                grid-template-areas:
+                    'collapse-button'
+                    'search-files';
+
+                :global([data-repo-rev-picker-trigger]) {
+                    display: none;
+                }
+
+                .search-files-button span {
+                    display: none;
+                }
+            }
+            .sidebar-file-tree {
+                display: none;
+            }
+        }
     }
 
-    .main {
-        flex: 1;
+    :global([data-panel-id='main-content-panel']) {
         display: flex;
         flex-direction: column;
         min-width: 0;
+        overflow: hidden;
     }
 
-    h3 {
-        display: flex;
-        align-items: center;
-        margin-bottom: 0.5rem;
+    :global([data-panel-id='bottom-actions-panel']) {
+        min-height: 2.5625rem; // 41px which is bottom panel compact size
+        box-shadow: var(--bottom-panel-shadow);
     }
 
     .bottom-panel {
-        position: sticky;
-        bottom: 0px;
-        background-color: var(--code-bg);
         --align-tabs: flex-start;
-        border-top: 1px solid var(--border-color);
-        max-height: 50vh;
-        overflow: hidden;
+
         display: flex;
-        flex-flow: row nowrap;
+        align-items: center;
+        gap: 2rem;
         justify-content: space-between;
-        padding-right: 0.5rem;
-        max-width: 100%;
+        overflow: hidden;
+        height: 100%;
+        background-color: var(--color-bg-1);
+        color: var(--text-body);
 
-        :global(.tabs) {
-            flex-grow: 1;
-            height: 100%;
-            max-height: 100%;
+        :global([data-tabs]) {
+            flex: 1;
+            min-width: 0;
         }
 
-        :global(.tabs-header) {
-            border-bottom: 1px solid var(--border-color);
+        &.collapsed :global([data-tabs]) {
+            // Reset min-width otherwise very long commit messages will overflow
+            // the tabs.
+            min-width: initial;
         }
 
-        &.open {
-            height: 30vh;
+        .last-commit {
+            min-width: 0;
+            max-width: min-content;
+            margin-right: 0.5rem;
         }
+    }
+
+    .info {
+        padding: 1rem;
     }
 </style>

@@ -31,6 +31,7 @@ go_library(
         "//internal/gqlutil",
         "//internal/licensing",
         "//internal/observation",
+        "//internal/trace",
         "//internal/types",
         "//lib/errors",
         "//lib/pointers",
@@ -49,6 +50,7 @@ go_test(
         "resolver_test.go",
     ],
     embed = [":resolvers"],
+    tags = [TAG_PLATFORM_SOURCE],
     deps = [
         "//cmd/frontend/graphqlbackend",
         "//cmd/frontend/graphqlbackend/graphqlutil",

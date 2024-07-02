@@ -14,6 +14,7 @@ export const builtinAuthProvider = {
     isBuiltin: true,
     authenticationURL: '',
     noSignIn: false,
+    requiredForAuthz: false,
 }
 
 // Create dummy JS context that will be added to index.html when `WEB_BUILDER_SERVE_INDEX` is set to true.
@@ -37,9 +38,10 @@ export const createJsContext = ({ sourcegraphBaseUrl }: { sourcegraphBaseUrl: st
         batchChangesDisableWebhooksWarning: false,
         batchChangesWebhookLogsEnabled: true,
         executorsEnabled: false,
-        codyEnabled: true,
+        codyEnabledOnInstance: true,
         codyEnabledForCurrentUser: true,
         codyRequiresVerifiedEmail: false,
+        codeSearchEnabledOnInstance: true,
         codeIntelAutoIndexingEnabled: false,
         codeIntelAutoIndexingAllowGlobalPolicies: false,
         codeIntelligenceEnabled: true,
@@ -86,7 +88,6 @@ export const createJsContext = ({ sourcegraphBaseUrl }: { sourcegraphBaseUrl: st
             endpoint: ENVIRONMENT_CONFIG.CLIENT_OTEL_EXPORTER_OTLP_ENDPOINT,
         },
         telemetryRecorder: noOpTelemetryRecorder,
-        embeddingsEnabled: false,
         primaryLoginProvidersCount: 5,
         // Site-config overrides default JS context
         ...siteConfig,

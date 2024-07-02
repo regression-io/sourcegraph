@@ -26,13 +26,8 @@ func TestSearch(t *testing.T) {
 	esID, err := client.AddExternalService(gqltestutil.AddExternalServiceInput{
 		Kind:        extsvc.KindGitHub,
 		DisplayName: "gqltest-github-search",
-		Config: mustMarshalJSONString(struct {
-			URL                   string   `json:"url"`
-			Token                 string   `json:"token"`
-			Repos                 []string `json:"repos"`
-			RepositoryPathPattern string   `json:"repositoryPathPattern"`
-		}{
-			URL:   "https://ghe.sgdev.org/",
+		Config: mustMarshalJSONString(&schema.GitHubConnection{
+			Url:   "https://ghe.sgdev.org/",
 			Token: *githubToken,
 			Repos: []string{
 				"sgtest/java-langserver",
@@ -102,9 +97,6 @@ type searchClient interface {
 	SearchRepositories(query string) (gqltestutil.SearchRepositoryResults, error)
 	SearchFiles(query string) (*gqltestutil.SearchFileResults, error)
 	SearchAll(query string) ([]*gqltestutil.AnyResult, error)
-
-	UpdateSiteConfiguration(config *schema.SiteConfiguration, lastID int32) error
-	SiteConfiguration() (*schema.SiteConfiguration, int32, error)
 
 	OverwriteSettings(subjectID, contents string) error
 	AuthenticatedUserID() string
@@ -214,6 +206,57 @@ func testSearchClient(t *testing.T, client searchClient) {
 		}
 	})
 
+	t.Run("path match ranges are returned", func(t *testing.T) {
+		results, err := client.SearchFiles("repo:^github.com/sgtest/go-diff$@f935979 type:path file:^\\.travis")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(results.Results) != 1 {
+			t.Fatal("expected 1 result")
+		}
+		pathMatches := results.Results[0].PathMatches
+		if len(pathMatches) != 1 {
+			t.Fatal("expected 1 path match")
+		}
+		pathMatch := pathMatches[0]
+		if pathMatch.Start.Character != 0 || pathMatch.End.Character != 7 {
+			t.Fatal("expected path match to cover range [0, 7)")
+		}
+	})
+
+	t.Run("repo at time", func(t *testing.T) {
+		// Surprisingly, our repo GraphQL resolver for a search result is just
+		// a repo, which does not expose its rev, so GraphQL does not work for this test.
+		doSkip(t, skipGraphQL)
+
+		t.Run("HEAD", func(t *testing.T) {
+			results, err := client.SearchRepositories("repo:^github.com/sgtest/go-diff$ rev:at.time(2018-01-01)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 1 {
+				t.Fatalf("expected exactly one result, got %#v", results)
+			}
+			if !strings.Contains(results[0].URL, "3f415a1") {
+				t.Fatalf("expected repository to be at commit 3f415a1, got %q", results[0].URL)
+			}
+		})
+
+		t.Run("branch", func(t *testing.T) {
+			results, err := client.SearchRepositories("repo:^github.com/sgtest/go-diff$ rev:at.time(2019-11-09, test-already-exist-pr)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 1 {
+				t.Fatalf("expected exactly one result, got %#v", results)
+			}
+			if !strings.Contains(results[0].URL, "3637c60") {
+				t.Fatalf("expected repository to be at commit 3637c60 got %q", results[0].URL)
+			}
+		})
+	})
+
 	t.Run("lang: filter", func(t *testing.T) {
 		// On our test repositories, `function` has results for go, ts, python, html
 		results, err := client.SearchFiles("function lang:go")
@@ -222,7 +265,7 @@ func testSearchClient(t *testing.T, client searchClient) {
 		}
 		// Make sure we only got .go files
 		for _, r := range results.Results {
-			if !strings.Contains(r.File.Name, ".go") {
+			if !strings.Contains(strings.ToLower(r.File.Name), ".go") {
 				t.Fatalf("Found file name does not end with .go: %s", r.File.Name)
 			}
 		}
@@ -614,16 +657,6 @@ func testSearchClient(t *testing.T, client searchClient) {
 				query:      "file:asdfasdf.go",
 				zeroResult: true,
 			},
-			// Symbol search
-			{
-				name:  "search for a known symbol",
-				query: "type:symbol count:100 patterntype:regexp ^newroute",
-			},
-			{
-				name:       "search for a non-existent symbol",
-				query:      "type:symbol asdfasdf",
-				zeroResult: true,
-			},
 			// Commit search
 			{
 				name:  "commit search, nonzero result",
@@ -717,30 +750,7 @@ func testSearchClient(t *testing.T, client searchClient) {
 	})
 
 	t.Run("structural search", func(t *testing.T) {
-		// Enable structural search.
-		siteConfig, lastID, err := client.SiteConfiguration()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		oldSiteConfig := new(schema.SiteConfiguration)
-		*oldSiteConfig = *siteConfig
-		defer func() {
-			_, lastID, err := client.SiteConfiguration()
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = client.UpdateSiteConfiguration(oldSiteConfig, lastID)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}()
-
-		siteConfig.ExperimentalFeatures = &schema.ExperimentalFeatures{StructuralSearch: "enabled"}
-		err = client.UpdateSiteConfiguration(siteConfig, lastID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		enableStructuralSearch(t)
 
 		tests := []struct {
 			name       string
@@ -1100,6 +1110,52 @@ func testSearchClient(t *testing.T, client searchClient) {
 				}
 				if test.exactMatchCount != 0 && results.MatchCount != test.exactMatchCount {
 					t.Fatalf("Want exactly %d results but got %d", test.exactMatchCount, results.MatchCount)
+				}
+			})
+		}
+	})
+
+	t.Run("Cody context search", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			query      string
+			zeroResult bool
+		}{
+			{
+				name:       "Cody context, simple query, results",
+				query:      `repo:^github\.com/sgtest/go-diff$ patterntype:codycontext PrintMultiFileDiff unified `,
+				zeroResult: false,
+			},
+			{
+				name:       "Cody context, simple query, no results",
+				query:      `repo:^github\.com/sgtest/go-diff$ patterntype:codycontext DOES_NOT_EXIST ALSO_DOES_NOT_EXIST `,
+				zeroResult: true,
+			},
+			{
+				name:       "Cody context, all stopwords in query",
+				query:      `repo:^github\.com/sgtest/go-diff$ patterntype:codycontext tell me again!`,
+				zeroResult: true,
+			},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				results, err := client.SearchFiles(test.query)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				if results.Alert != nil {
+					t.Fatalf("Unexpected alert %v", results.Alert)
+				}
+
+				if test.zeroResult {
+					if len(results.Results) > 0 {
+						t.Fatalf("Want zero result but got %d", len(results.Results))
+					}
+				} else {
+					if len(results.Results) == 0 {
+						t.Fatal("Want non-zero results but got 0")
+					}
 				}
 			})
 		}

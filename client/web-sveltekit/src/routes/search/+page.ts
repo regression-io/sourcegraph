@@ -19,6 +19,7 @@ import {
 } from '$lib/shared'
 
 import type { PageLoad } from './$types'
+import DotcomFooterLinks from './DotcomFooterLinks.svelte'
 
 type SearchStreamCacheEntry = Observable<AggregateStreamingSearchResults>
 
@@ -82,11 +83,12 @@ class NonCachingStreamManager {
 
 const streamManager = browser ? new CachingStreamManager() : new NonCachingStreamManager()
 
-export const load: PageLoad = ({ url, depends }) => {
+export const load: PageLoad = async ({ parent, url, depends }) => {
     const hasQuery = url.searchParams.has('q')
-    const caseSensitiveURL = url.searchParams.get('case') === 'yes'
     const cachePolicy = getCachePolicyFromURL(url)
     const trace = url.searchParams.get('trace') ?? undefined
+
+    const codyHref = window.context.sourcegraphDotComMode ? 'https://sourcegraph.com/cody' : '/cody'
 
     if (hasQuery) {
         const parsedQuery = parseExtendedSearchURL(url)
@@ -97,9 +99,7 @@ export const load: PageLoad = ({ url, depends }) => {
             caseSensitive,
             filters: queryFilters,
         } = parsedQuery
-        // Necessary for allowing to submit the same query again
-        // FIXME: This is not correct
-        depends(`query:${query}--${caseSensitiveURL}`)
+        depends(`search:${url}`)
 
         let searchContext = 'global'
         if (filterExists(query, FilterType.context)) {
@@ -119,7 +119,7 @@ export const load: PageLoad = ({ url, depends }) => {
             featureOverrides: [],
             chunkMatches: true,
             searchMode,
-            displayLimit: 1500,
+            displayLimit: (await parent()).settings?.['search.displayLimit'] ?? 1500,
             // 5kb is a conservative upper bound on a reasonable line to show
             // to a user. In practice we can likely go much lower.
             maxLineLen: 5 * 1024,
@@ -142,6 +142,8 @@ export const load: PageLoad = ({ url, depends }) => {
         const searchStream = streamManager.search(parsedQuery, options, useClientCache)
 
         return {
+            codyHref,
+            footer: window.context.sourcegraphDotComMode ? DotcomFooterLinks : null,
             searchStream,
             queryFilters,
             queryFromURL: query,
@@ -155,6 +157,8 @@ export const load: PageLoad = ({ url, depends }) => {
         }
     }
     return {
+        codyHref,
+        footer: window.context.sourcegraphDotComMode ? DotcomFooterLinks : null,
         queryOptions: {
             query: '',
         },

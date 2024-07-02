@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,8 +52,14 @@ type EnvironmentSpec struct {
 	// configured.
 	Category EnvironmentCategory `yaml:"category"`
 
-	// Deploy specifies how to deploy revisions.
+	// Deploy specifies how to deploy revisions of the service image.
 	Deploy EnvironmentDeploySpec `yaml:"deploy"`
+
+	// Locations specifies details for the desired geographical location of
+	// resources provisioned for this environment. If omitted, default
+	// locations are used (namely, the GCP region 'us-central1'). If provided,
+	// all fields must be specified.
+	Locations *EnvironmentLocationsSpec `yaml:"locations,omitempty"`
 
 	// EnvironmentServiceSpec carries service-specific configuration.
 	*EnvironmentServiceSpec `yaml:",inline"`
@@ -123,6 +130,7 @@ func (s EnvironmentSpec) Validate() []error {
 
 	// Validate other shared sub-specs
 	errs = append(errs, s.Deploy.Validate()...)
+	errs = append(errs, s.GetLocationSpec().Validate()...)
 	errs = append(errs, s.Resources.Validate()...)
 	errs = append(errs, s.Instances.Validate()...)
 	for k, v := range s.SecretVolumes {
@@ -163,6 +171,10 @@ func (c EnvironmentCategory) Validate() error {
 	return nil
 }
 
+func (c EnvironmentCategory) IsProduction() bool {
+	return c == EnvironmentCategoryExternal || c == EnvironmentCategoryInternal
+}
+
 type EnvironmentDeployType string
 
 const (
@@ -170,10 +182,6 @@ const (
 	EnvironmentDeployTypeSubscription = "subscription"
 	EnvironmentDeployTypeRollout      = "rollout"
 )
-
-func (c EnvironmentCategory) IsProduction() bool {
-	return c == EnvironmentCategoryExternal || c == EnvironmentCategoryInternal
-}
 
 type EnvironmentDeploySpec struct {
 	// Type specifies the deployment method for the environment. There are
@@ -189,7 +197,12 @@ type EnvironmentDeploySpec struct {
 
 func (s EnvironmentDeploySpec) Validate() []error {
 	var errs []error
-	if s.Type == EnvironmentDeployTypeSubscription {
+	switch s.Type {
+	case EnvironmentDeployTypeManual:
+		if s.Subscription != nil {
+			errs = append(errs, errors.New("subscription deploy spec provided when type is manual"))
+		}
+	case EnvironmentDeployTypeSubscription:
 		if s.Manual != nil {
 			errs = append(errs, errors.New("manual deploy spec provided when type is subscription"))
 		} else if s.Subscription == nil {
@@ -197,44 +210,25 @@ func (s EnvironmentDeploySpec) Validate() []error {
 		} else if s.Subscription.Tag == "" {
 			errs = append(errs, errors.New("no tag in image subscription specified"))
 		}
-	} else if s.Type == EnvironmentDeployTypeManual {
-		if s.Subscription != nil {
-			errs = append(errs, errors.New("subscription deploy spec provided when type is manual"))
-		}
+	case EnvironmentDeployTypeRollout:
+		// no validation
+	default:
+		errs = append(errs, errors.Newf("invalid deploy type %q", s.Type))
 	}
 	return errs
-}
-
-// ResolveTag uses the deploy spec to resolve an appropriate tag for the environment.
-func (d EnvironmentDeploySpec) ResolveTag(repo string) (string, error) {
-	switch d.Type {
-	case EnvironmentDeployTypeManual:
-		if d.Manual == nil {
-			return "insiders", nil
-		}
-		return d.Manual.Tag, nil
-	case EnvironmentDeployTypeSubscription:
-		// we already validated in Validate(), hence it's fine to assume this won't panic
-		updater, err := imageupdater.New()
-		if err != nil {
-			return "", errors.Wrapf(err, "create image updater")
-		}
-		tagAndDigest, err := updater.ResolveTagAndDigest(repo, d.Subscription.Tag)
-		if err != nil {
-			return "", errors.Wrapf(err, "resolve digest for tag %q", "insiders")
-		}
-		return tagAndDigest, nil
-	case EnvironmentDeployTypeRollout:
-		// Enforce convention
-		return "insiders", nil
-	default:
-		return "", errors.Newf("unable to resolve tag for unknown deploy type %q", d.Type)
-	}
 }
 
 type EnvironmentDeployManualSpec struct {
 	// Tag is the tag to deploy. If empty, defaults to "insiders".
 	Tag string `yaml:"tag,omitempty"`
+}
+
+// GetTag returns the tag to deploy. If empty, defaults to "insiders".
+func (s *EnvironmentDeployManualSpec) GetTag() string {
+	if s == nil {
+		return "insiders"
+	}
+	return s.Tag
 }
 
 type EnvironmentDeployTypeSubscriptionSpec struct {
@@ -243,8 +237,24 @@ type EnvironmentDeployTypeSubscriptionSpec struct {
 	// TODO: In the future, we may support subscribing by semver constraints.
 }
 
+// ResolveTag fetches the latest digest for the target imageRepo and configured
+// subscription tag, and returns it.
+func (s EnvironmentDeployTypeSubscriptionSpec) ResolveTag(imageRepo string) (string, error) {
+	updater, err := imageupdater.New()
+	if err != nil {
+		return "", errors.Wrapf(err, "create image updater")
+	}
+	tagAndDigest, err := updater.ResolveTagAndDigest(imageRepo, s.Tag)
+	if err != nil {
+		return "", errors.Wrapf(err, "resolve digest for tag %q", "insiders")
+	}
+	return tagAndDigest, nil
+}
+
 type EnvironmentServiceSpec struct {
-	// Domain configures where the resource is externally accessible.
+	// Domain configures where the resource is externally accessible. There
+	// may be additional considerations based on your service's chosen protocol;
+	// refer to the 'service.protocol' docstring for more details.
 	//
 	// Only supported for services of 'kind: service'.
 	Domain *EnvironmentServiceDomainSpec `yaml:"domain,omitempty"`
@@ -516,6 +526,9 @@ func (s *EnvironmentServiceHealthProbesSpec) Validate() []error {
 	if s.GetTimeoutSeconds() > s.GetLivenessIntervalSeconds() {
 		errs = append(errs, errors.New("livenessInterval must be greater than or equal to timeout"))
 	}
+	if s.GetLivenessIntervalSeconds() > 3600 {
+		errs = append(errs, errors.New("livenessInterval must be less than or equal to 3600 seconds"))
+	}
 
 	return errs
 }
@@ -567,6 +580,8 @@ func (s *EnvironmentServiceHealthProbesSpec) GetTimeoutSeconds() int {
 }
 
 type EnvironmentJobSpec struct {
+	// DeadlineSeconds of each job execution, in seconds. Defaults to 300.
+	DeadlineSeconds *int `yaml:"deadlineSeconds,omitempty"`
 	// Schedule configures a cron schedule for the service.
 	//
 	// Only supported for services of 'kind: job'.
@@ -586,10 +601,11 @@ func (s *EnvironmentJobSpec) Validate() []error {
 type EnvironmentJobScheduleSpec struct {
 	// Cron is a cron schedule in the form of "* * * * *".
 	//
+	// The smallest interval must be greater than 15 minutes, and more frequent
+	// than once a week.
+	//
 	// Protip: use https://crontab.guru
 	Cron string `yaml:"cron"`
-	// Deadline of each attempt, in seconds.
-	Deadline *int `yaml:"deadline,omitempty"`
 }
 
 func (s *EnvironmentJobScheduleSpec) Validate() []error {
@@ -598,7 +614,7 @@ func (s *EnvironmentJobScheduleSpec) Validate() []error {
 	}
 
 	var errs []error
-	if _, err := s.FindMaxCronInterval(); err != nil {
+	if _, err := s.FindMaxCronInterval(time.Now()); err != nil {
 		errs = append(errs, errors.Wrap(err, "schedule.cron: invalid schedule"))
 	}
 	return errs
@@ -606,7 +622,7 @@ func (s *EnvironmentJobScheduleSpec) Validate() []error {
 
 // FindMaxCronInterval tries to find the largest gap between events in the cron
 // schedule. It may return 'nil, nil' if no configuration is available.
-func (s *EnvironmentJobScheduleSpec) FindMaxCronInterval() (*time.Duration, error) {
+func (s *EnvironmentJobScheduleSpec) FindMaxCronInterval(now time.Time) (*time.Duration, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -616,12 +632,13 @@ func (s *EnvironmentJobScheduleSpec) FindMaxCronInterval() (*time.Duration, erro
 		return nil, errors.Wrap(err, "invalid cron schedule")
 	}
 
-	// get 64 scheduled events to try and see what the largest gap is - this
+	// Get nScheduled events to try and see what the largest gap is - this
 	// is not performance sensitive, we just need to be able to reliably find
 	// the largest interval. some silly crons won't generate reliable intervals
 	// but this will hopefully give us a realistic indicator that we can error
 	// out on below.
-	scheduled := expr.NextN(time.Now(), 64)
+	nScheduled := 24 * 7 * 4 // up to every 4 times per hour (15 minutes) every day per week
+	scheduled := expr.NextN(now, uint(nScheduled))
 
 	// scheduled is in chronological order, so we can compare subsequent events
 	// to find the largest gap in this cron.
@@ -635,15 +652,15 @@ func (s *EnvironmentJobScheduleSpec) FindMaxCronInterval() (*time.Duration, erro
 		}
 	}
 
-	// should not be possible to have <1m schedule
-	if maxGap < time.Minute {
-		return nil, errors.Newf("the longest interval must be >1m, got %s", maxGap.String())
+	// should not be possible to have <15m schedule for costs
+	if maxGap < 15*time.Minute {
+		return nil, errors.Newf("the longest interval must be >15m, got %s", maxGap.String())
 	}
 
-	// once we get into the monthly territory, things might get funky - forbid
-	// these very long intervals for now
-	if maxGap > 27*24*time.Hour {
-		return nil, errors.Newf("the longest interval must be <28 days, got %s", maxGap.String())
+	// once we get into the longer-than-weekly territory, things might get funky;
+	// forbid these very long intervals for now
+	if maxGap > 8*24*time.Hour {
+		return nil, errors.Newf("the longest interval must be <8 days, got %s", maxGap.String())
 	}
 
 	return &maxGap, nil
@@ -737,10 +754,19 @@ func (s *EnvironmentResourcesSpec) Validate() []error {
 }
 
 type EnvironmentResourceRedisSpec struct {
-	// Defaults to STANDARD_HA.
-	Tier *string `yaml:"tier,omitempty"`
-	// Defaults to 1.
+	// MemoryGB defaults to 1.
 	MemoryGB *int `yaml:"memoryGB,omitempty"`
+	// HighAvailability is disabled by default. Enabling it toggles regional
+	// replicas for the Redis instance without adding read replicas for ~double
+	// the price. It should be enabled for our most critical services, but as
+	// Redis is fairly affordable, if you run into Redis stability issues there
+	// is no blocker to enabling this.
+	//
+	//  - https://cloud.google.com/memorystore/docs/redis/high-availability-for-memorystore-for-redis
+	//  - https://cloud.google.com/memorystore/docs/redis/pricing#instance_pricing_with_no_read_replicas
+	//
+	// Also see: https://sourcegraph.notion.site/655e89d164b24727803f5e5a603226d8
+	HighAvailability *bool `yaml:"highAvailability,omitempty"`
 }
 
 func (EnvironmentResourceRedisSpec) ResourceKind() string { return "Redis" }
@@ -748,13 +774,23 @@ func (EnvironmentResourceRedisSpec) ResourceKind() string { return "Redis" }
 type EnvironmentResourcePostgreSQLSpec struct {
 	// Databases to provision - required.
 	Databases []string `yaml:"databases"`
-	// Defaults to 1. Must be 1, or an even number between 2 and 96.
+	// CPU defaults to 1. Must be 1, or an even number between 2 and 96.
 	CPU *int `yaml:"cpu,omitempty"`
-	// Defaults to 4 (to meet CloudSQL minimum). You must request 0.9 to 6.5 GB
-	// per vCPU.
+	// MemoryGB defaults to 4 (to meet CloudSQL minimum). You must request 0.9
+	// to 6.5 GB per vCPU.
 	MemoryGB *int `yaml:"memoryGB,omitempty"`
-	// Defaults to whatever CloudSQL provides. Must be between 14 and 262143.
+	// MaxConnections defaults to whatever CloudSQL provides. Must be between
+	// 14 and 262143.
 	MaxConnections *int `yaml:"maxConnections,omitempty"`
+	// HighAvailability is disabled by default. Enabling it provisions Cloud SQL
+	// HA configuration for ~double the price and additional point-in-time-recovery
+	// backup expenses, and should only be enabled for our most critical services.
+	//
+	//  - https://cloud.google.com/sql/docs/postgres/high-availability
+	//  - https://cloud.google.com/sql/pricing
+	//
+	// Also see: https://sourcegraph.notion.site/655e89d164b24727803f5e5a603226d8
+	HighAvailability *bool `yaml:"highAvailability,omitempty"`
 }
 
 func (EnvironmentResourcePostgreSQLSpec) ResourceKind() string { return "PostgreSQL instance" }
@@ -814,9 +850,6 @@ type EnvironmentResourceBigQueryDatasetSpec struct {
 	// project for BigQuery resources. If not provided, resources are created
 	// within the service's project.
 	ProjectID *string `yaml:"projectID,omitempty"`
-	// Location defaults to "US". Do not configure unless you know what you are
-	// doing, as BigQuery locations are not the same as standard GCP regions.
-	Location *string `yaml:"region,omitempty"`
 }
 
 func (EnvironmentResourceBigQueryDatasetSpec) ResourceKind() string { return "BigQuery dataset" }
@@ -878,4 +911,73 @@ type EnvironmentAlertingSpec struct {
 	// of alerts that are considered high-signal indicators that something is
 	// definitely wrong with your service.
 	Opsgenie *bool `yaml:"opsgenie,omitempty"`
+}
+
+type EnvironmentLocationsSpec struct {
+	// GCPRegion is the GCP region where all regional resources resources should
+	// be deployed for this environment, for example:
+	//
+	// - https://cloud.google.com/about/locations#americas
+	// - https://cloud.google.com/about/locations#asia-pacific
+	GCPRegion string `yaml:"gcpRegion"`
+	// GCPLocation is the GCP location where all multi-regional resources should
+	// be deployed for this environment, e.g. BigQuery:
+	// https://cloud.google.com/about/locations#multi-region
+	//
+	// Note that the names of valid locations are not consistent across GCP
+	// products, callsites should check that the allowed values in
+	// 'EnvironmentLocationsSpec.Validate()' match the actual values supported
+	// by the relevant GCP product.
+	GCPLocation string `yaml:"gcpLocation"`
+}
+
+// GetLocationSpec returns the appropriate location spec for the environment,
+// returning defaults if none is configured.
+func (s EnvironmentSpec) GetLocationSpec() EnvironmentLocationsSpec {
+	if s.Locations == nil {
+		// Provide our defaults
+		return EnvironmentLocationsSpec{
+			GCPRegion:   "us-central1",
+			GCPLocation: "US", // original default for BigQuery
+		}
+	}
+	return *s.Locations
+}
+
+func (s EnvironmentLocationsSpec) Validate() []error {
+	var (
+		allowedRegions = []string{
+			// Starter list, same as Cloud controller
+			"us-central1",
+			"us-west1",
+			"asia-northeast1",
+			"australia-southeast1",
+			"europe-west2",
+			"europe-west3",
+			"northamerica-northeast1",
+		}
+		allowedLocations = []string{
+			// Only support locations that have BigQuery (i.e. not APAC)
+			"us",
+			"europe",
+		}
+	)
+
+	var errs []error
+
+	if s.GCPRegion == "" {
+		errs = append(errs, errors.New("locations.gcpRegion must be non-empty"))
+	} else if !slices.Contains(allowedRegions, s.GCPRegion) {
+		errs = append(errs, errors.Newf("locations.gcpRegion %q is not valid, allowed: [%s]",
+			s.GCPRegion, strings.Join(allowedRegions, ", ")))
+	}
+
+	if s.GCPLocation == "" {
+		errs = append(errs, errors.New("locations.gcpLocation must be non-empty"))
+	} else if !slices.Contains(allowedLocations, strings.ToLower(s.GCPLocation)) {
+		errs = append(errs, errors.Newf("locations.gcpLocation %q is not valid, allowed: [%s]",
+			s.GCPLocation, strings.Join(allowedLocations, ", ")))
+	}
+
+	return errs
 }

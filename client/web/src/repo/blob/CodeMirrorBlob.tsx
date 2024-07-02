@@ -22,7 +22,7 @@ import { useKeyboardShortcut } from '@sourcegraph/shared/src/keyboardShortcuts/u
 import { Shortcut } from '@sourcegraph/shared/src/react-shortcuts'
 import { useSettings } from '@sourcegraph/shared/src/settings/settings'
 import type { TemporarySettingsSchema } from '@sourcegraph/shared/src/settings/temporary/TemporarySettings'
-import { type TelemetryV2Props, noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
 import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { useIsLightTheme } from '@sourcegraph/shared/src/theme'
 import { codeCopiedEvent } from '@sourcegraph/shared/src/tracking/event-log-creators'
@@ -35,12 +35,12 @@ import {
 import { useLocalStorage } from '@sourcegraph/wildcard'
 
 import { CodeMirrorEditor } from '../../cody/components/CodeMirrorEditor'
-import { isCodyEnabled } from '../../cody/isCodyEnabled'
 import { useCodySidebar } from '../../cody/sidebar/Provider'
+import { useCodyIgnore } from '../../cody/useCodyIgnore'
 import { useFeatureFlag } from '../../featureFlags/useFeatureFlag'
 import type { ExternalLinkFields, Scalars } from '../../graphql-operations'
 import { requestGraphQLAdapter } from '../../platform/context'
-import type { BlameHunkData } from '../blame/useBlameHunks'
+import type { BlameHunkData } from '../blame/shared'
 import type { HoverThresholdProps } from '../RepoContainer'
 
 import { BlameDecoration } from './BlameDecoration'
@@ -59,6 +59,7 @@ import { navigateToLineOnAnyClickExtension } from './codemirror/navigate-to-any-
 import { CodeMirrorContainer } from './codemirror/react-interop'
 import { scipSnapshot } from './codemirror/scip-snapshot'
 import { search, type SearchPanelConfig } from './codemirror/search'
+import { SearchPanel } from './codemirror/search/SearchPanel'
 import { staticHighlights, type Range } from './codemirror/static-highlights'
 import { codyWidgetExtension } from './codemirror/tooltips/CodyTooltip'
 import { HovercardView } from './codemirror/tooltips/HovercardView'
@@ -215,6 +216,7 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
         staticHighlightRanges,
         'data-testid': dataTestId,
         telemetryService,
+        telemetryRecorder,
     } = props
 
     const apolloClient = useApolloClient()
@@ -310,6 +312,7 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
     )
     const codeIntelExtension = useCodeIntelExtension(
         telemetryService,
+        telemetryRecorder,
         {
             repoName: blobInfo.repoName,
             filePath: blobInfo.filePath,
@@ -335,6 +338,10 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
         useMemo(() => EditorView.darkTheme.of(!isLightTheme), [isLightTheme])
     )
 
+    const { isFileIgnored } = useCodyIgnore()
+    const isCodyEnabledForFile =
+        window.context?.codyEnabledForCurrentUser && !isFileIgnored(blobInfo.repoName, blobInfo.filePath)
+
     const extensions = useMemo(
         () => [
             staticExtensions,
@@ -347,10 +354,9 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
             scipSnapshot(blobInfo.content, blobInfo.snapshotData),
             openCodeGraphExtension,
             codeFoldingExtension(),
-            isCodyEnabled()
+            isCodyEnabledForFile
                 ? codyWidgetExtension(
-                      // TODO: replace with real telemetryRecorder
-                      noOpTelemetryRecorder,
+                      telemetryRecorder,
                       editorRef.current
                           ? new CodeMirrorEditor({
                                 view: editorRef.current,
@@ -375,8 +381,7 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
                 overrideBrowserFindInPageShortcut: useFileSearch,
                 onOverrideBrowserFindInPageToggle: setUseFileSearch,
                 initialState: searchPanelConfig,
-                graphQLClient: apolloClient,
-                navigate,
+                createPanel: config => new SearchPanel(config, apolloClient, navigate),
             }),
             themeExtension,
         ],
@@ -389,7 +394,7 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
             staticHighlightRanges,
             navigate,
             blobInfo,
-            isCodyEnabled,
+            isCodyEnabledForFile,
             openCodeGraphExtension,
             codeIntelExtension,
             editorRef.current,
@@ -499,7 +504,8 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
 
     const logEventOnCopy = useCallback(() => {
         telemetryService.log(...codeCopiedEvent('blob-view'))
-    }, [telemetryService])
+        telemetryRecorder.recordEvent('repo.blob.code', 'copy')
+    }, [telemetryService, telemetryRecorder])
 
     return (
         <>
@@ -532,6 +538,7 @@ export const CodeMirrorBlob: React.FunctionComponent<BlobProps> = props => {
 
 function useCodeIntelExtension(
     telemetryService: TelemetryProps['telemetryService'],
+    telemetryRecorder: TelemetryV2Props['telemetryRecorder'],
     {
         repoName,
         filePath,
@@ -553,9 +560,10 @@ function useCodeIntelExtension(
                       settings: name => settings[name],
                       requestGraphQL: requestGraphQLAdapter(apolloClient),
                       telemetryService,
+                      telemetryRecorder,
                   })
                 : null,
-        [settings, apolloClient, telemetryService]
+        [settings, apolloClient, telemetryService, telemetryRecorder]
     )
 
     useEffect(() => {

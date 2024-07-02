@@ -21,7 +21,6 @@ import (
 
 	zoektquery "github.com/sourcegraph/zoekt/query"
 
-	"github.com/sourcegraph/sourcegraph/cmd/searcher/protocol"
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/endpoint"
 	"github.com/sourcegraph/sourcegraph/internal/errcode"
@@ -36,6 +35,7 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/search/searcher"
 	"github.com/sourcegraph/sourcegraph/internal/search/streaming"
 	zoektutil "github.com/sourcegraph/sourcegraph/internal/search/zoekt"
+	"github.com/sourcegraph/sourcegraph/internal/searcher/protocol"
 	"github.com/sourcegraph/sourcegraph/internal/types"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 	"github.com/sourcegraph/sourcegraph/schema"
@@ -1112,6 +1112,41 @@ func TestNewPlanJob(t *testing.T) {
                 (patternInfo.fileMatchLimit . 10000)))))))))
 `),
 		},
+		{
+			query:      `context:global repo:sourcegraph/.* are all things possible? lang:go`,
+			protocol:   search.Streaming,
+			searchType: query.SearchTypeCodyContext,
+			want: autogold.Expect(`
+(LOG
+  (ALERT
+    (features . error decoding features)
+    (protocol . Streaming)
+    (onSourcegraphDotCom . true)
+    (query . )
+    (originalQuery . )
+    (patternType . codycontext)
+    NOOP))
+`),
+		},
+		{
+			query:      `context:global repo:sourcegraph/.* what is symf? lang:go`,
+			protocol:   search.Streaming,
+			searchType: query.SearchTypeCodyContext,
+			want: autogold.Expect(`
+(LOG
+  (ALERT
+    (features . error decoding features)
+    (protocol . Streaming)
+    (onSourcegraphDotCom . true)
+    (query . )
+    (originalQuery . )
+    (patternType . codycontext)
+    (CODYCONTEXTSEARCH
+      (patterns . [readme symf])
+      (codeCount . 12)
+      (textCount . 3))))
+`),
+		},
 		// The next query shows an unexpected way that a query is
 		// translated into a global zoekt query, all depending on if context:
 		// is specified (which it normally is). We expect to just have one
@@ -1188,6 +1223,54 @@ func TestNewPlanJob(t *testing.T) {
             NOOP))))))
 `),
 		},
+
+		// This test shows that we can handle languages not in Linguist
+		{
+			query:      `context:global repo:sourcegraph/.* lang:magik`,
+			protocol:   search.Streaming,
+			searchType: query.SearchTypeKeyword,
+			want: autogold.Expect(`
+(LOG
+  (ALERT
+    (features . error decoding features)
+    (protocol . Streaming)
+    (onSourcegraphDotCom . true)
+    (query . )
+    (originalQuery . )
+    (patternType . keyword)
+    (TIMEOUT
+      (timeout . 20s)
+      (LIMIT
+        (limit . 10000)
+        (PARALLEL
+          (REPOPAGER
+            (containsRefGlobs . false)
+            (repoOpts.repoFilters . [sourcegraph/.*])
+            (repoOpts.searchContextSpec . global)
+            (PARTIALREPOS
+              (ZOEKTREPOSUBSETTEXTSEARCH
+                (fileMatchLimit . 10000)
+                (select . )
+                (zoektQueryRegexps . [(?i)(?im:\.MAGIK$)])
+                (query . file_regex:"(?i:\\.MAGIK)(?m:$)")
+                (type . text))))
+          (REPOPAGER
+            (containsRefGlobs . false)
+            (repoOpts.repoFilters . [sourcegraph/.*])
+            (repoOpts.searchContextSpec . global)
+            (PARTIALREPOS
+              (SEARCHERTEXTSEARCH
+                (useFullDeadline . true)
+                (patternInfo . TextPatternInfo{//,filematchlimit:10000,lang:magik,f:"(?i)\\.magik$"})
+                (numRepos . 0)
+                (pathRegexps . [(?i)\.magik$])
+                (indexed . false))))
+          (REPOSCOMPUTEEXCLUDED
+            (repoOpts.repoFilters . [sourcegraph/.*])
+            (repoOpts.searchContextSpec . global))
+          NOOP)))))
+`),
+		},
 	}
 
 	for _, tc := range cases {
@@ -1243,6 +1326,7 @@ func TestToTextPatternInfo(t *testing.T) {
 	cases := []struct {
 		input  string
 		output autogold.Value
+		feat   search.Features
 	}{{
 		input:  `type:repo archived`,
 		output: autogold.Expect(`{"Query":{"Value":"archived","IsNegated":false,"IsRegExp":false},"IsStructuralPat":false,"CombyRule":"","IsCaseSensitive":false,"FileMatchLimit":30,"Index":"yes","Select":[],"IncludePaths":null,"ExcludePaths":"","IncludeLangs":null,"ExcludeLangs":null,"PathPatternsAreCaseSensitive":false,"PatternMatchesContent":false,"PatternMatchesPath":false,"Languages":null}`),
@@ -1375,9 +1459,17 @@ func TestToTextPatternInfo(t *testing.T) {
 	}, {
 		input:  `repo:^github\.com/sgtest/sourcegraph-typescript$ file:^README\.md "basic :[_] access :[_]" patterntype:structural`,
 		output: autogold.Expect(`{"Query":{"Value":"\"basic :[_] access :[_]\"","IsNegated":false,"IsRegExp":false},"IsStructuralPat":true,"CombyRule":"","IsCaseSensitive":false,"FileMatchLimit":30,"Index":"yes","Select":[],"IncludePaths":["^README\\.md"],"ExcludePaths":"","IncludeLangs":null,"ExcludeLangs":null,"PathPatternsAreCaseSensitive":false,"PatternMatchesContent":true,"PatternMatchesPath":true,"Languages":null}`),
+	}, {
+		input:  `sgtest lang:magik type:file`,
+		feat:   search.Features{ContentBasedLangFilters: true},
+		output: autogold.Expect(`{"Query":{"Value":"sgtest","IsNegated":false,"IsRegExp":false},"IsStructuralPat":false,"CombyRule":"","IsCaseSensitive":false,"FileMatchLimit":30,"Index":"yes","Select":[],"IncludePaths":null,"ExcludePaths":"","IncludeLangs":["Magik"],"ExcludeLangs":null,"PathPatternsAreCaseSensitive":false,"PatternMatchesContent":true,"PatternMatchesPath":false,"Languages":["magik"]}`),
+	}, {
+		input:  `sgtest lang:magik type:file`,
+		feat:   search.Features{ContentBasedLangFilters: false},
+		output: autogold.Expect(`{"Query":{"Value":"sgtest","IsNegated":false,"IsRegExp":false},"IsStructuralPat":false,"CombyRule":"","IsCaseSensitive":false,"FileMatchLimit":30,"Index":"yes","Select":[],"IncludePaths":["(?i)\\.magik$"],"ExcludePaths":"","IncludeLangs":null,"ExcludeLangs":null,"PathPatternsAreCaseSensitive":false,"PatternMatchesContent":true,"PatternMatchesPath":false,"Languages":["magik"]}`),
 	}}
 
-	test := func(input string) string {
+	test := func(input string, feat search.Features) string {
 		searchType := overrideSearchType(input, query.SearchTypeLiteral)
 		plan, err := query.Pipeline(query.Init(input, searchType))
 		if err != nil {
@@ -1388,14 +1480,14 @@ func TestToTextPatternInfo(t *testing.T) {
 		}
 		b := plan[0]
 		resultTypes := computeResultTypes(b, query.SearchTypeLiteral, defaultResultTypes)
-		p := toTextPatternInfo(b, resultTypes, &search.Features{}, limits.DefaultMaxSearchResults)
+		p := toTextPatternInfo(b, resultTypes, &feat, limits.DefaultMaxSearchResults)
 		v, _ := json.Marshal(p)
 		return string(v)
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
-			tc.output.Equal(t, test(tc.input))
+			tc.output.Equal(t, test(tc.input, tc.feat))
 		})
 	}
 }
@@ -1604,7 +1696,7 @@ func TestRepoSubsetTextSearch(t *testing.T) {
 		endpoint.Static("test"),
 		false,
 	)
-	if !errors.HasType(err, &gitdomain.RevisionNotFoundError{}) {
+	if !errors.HasType[*gitdomain.RevisionNotFoundError](err) {
 		t.Fatalf("searching non-existent rev expected to fail with RevisionNotFoundError got: %v", err)
 	}
 }
@@ -1934,6 +2026,7 @@ func runRepoSubsetTextSearch(
 
 	zoektParams := &search.ZoektParameters{
 		FileMatchLimit:  patternInfo.FileMatchLimit,
+		Typ:             typ,
 		Select:          patternInfo.Select,
 		NumContextLines: 0,
 	}
@@ -1941,7 +2034,7 @@ func runRepoSubsetTextSearch(
 	zoektJob := &zoektutil.RepoSubsetTextSearchJob{
 		Repos:       indexed,
 		Query:       zoektQuery,
-		Typ:         search.TextRequest,
+		Typ:         typ,
 		ZoektParams: zoektParams,
 		Since:       nil,
 	}

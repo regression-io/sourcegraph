@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-enry/go-enry/v2"
+	"github.com/go-enry/go-enry/v2" //nolint:depguard - FIXME: replace this usage of enry with languages package
 
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
@@ -65,7 +65,6 @@ func TestGetLang_language(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			lang, err := getLang(context.Background(),
 				test.file,
-				make([]byte, fileReadBufferSize),
 				makeFileReader(test.file.Contents))
 			if err != nil {
 				t.Fatal(err)
@@ -118,7 +117,13 @@ func TestGet_readFile(t *testing.T) {
 		want string
 	}{
 		{file: fi{"a.java", "aaaaaaaaa"}, want: "Java"},
+		{file: fi{"a.magik", "aaaaaaaaa"}, want: "Magik"},
+		{file: fi{"a.cs", "aaaaaaaaa"}, want: "C#"},
+		{file: fi{"a.hh", "<?hh"}, want: "Hack"},
+		{file: fi{"a.hh", "#import"}, want: "C++"},
 		{file: fi{"b.md", "# Hello"}, want: "Markdown"},
+		// We may have empty string for language if there is not known language for file path
+		{file: fi{"b.blahblah", "# Hello"}, want: ""},
 
 		// The .m extension is used by many languages, but this code is obviously Objective-C. This
 		// test checks that this file is detected correctly as Objective-C.
@@ -130,7 +135,7 @@ func TestGet_readFile(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.file.Name(), func(t *testing.T) {
 			fr := makeFileReader(test.file.(fi).Contents)
-			lang, err := getLang(context.Background(), test.file, make([]byte, fileReadBufferSize), fr)
+			lang, err := getLang(context.Background(), test.file, fr)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -160,12 +165,11 @@ func BenchmarkGetLang(b *testing.B) {
 		b.Fatal(err)
 	}
 	fr := newFileReader(files)
-	buf := make([]byte, fileReadBufferSize)
 	b.Logf("Calling Get on %d files.", len(files))
 	b.ResetTimer()
 	for range b.N {
 		for _, file := range files {
-			_, err = getLang(context.Background(), file, buf, fr)
+			_, err = getLang(context.Background(), file, fr)
 			if err != nil {
 				b.Fatal(err)
 			}

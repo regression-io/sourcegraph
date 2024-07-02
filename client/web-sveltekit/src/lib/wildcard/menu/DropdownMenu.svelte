@@ -1,5 +1,6 @@
 <script lang="ts" context="module">
     import { createContextAccessors } from '$lib/utils/context'
+
     type DropdownMenu = ReturnType<typeof createDropdownMenu>
 
     interface DropdownMenuContext {
@@ -35,7 +36,7 @@
     setContext({ item, separator, builders })
 </script>
 
-<button {...$trigger} use:trigger class={triggerButtonClass} {...$$restProps}>
+<button data-dropdown-trigger {...$trigger} use:trigger class={triggerButtonClass} {...$$restProps}>
     <slot name="trigger" />
 </button>
 
@@ -47,18 +48,19 @@
     div,
     div :global([role='menu']) {
         isolation: isolate;
-        z-index: 1000;
         min-width: 12rem;
-        font-size: 0.875rem;
+        font-size: var(--font-size-small);
         background-clip: padding-box;
         background-color: var(--dropdown-bg);
         border: 1px solid var(--dropdown-border-color);
         border-radius: var(--popover-border-radius);
         color: var(--body-color);
         box-shadow: var(--dropdown-shadow);
-        padding: 0.25rem 0;
+        padding: var(--dropdown-padding-y) 0;
 
         :global([role^='menuitem']) {
+            --icon-color: currentColor;
+
             all: unset;
             cursor: pointer;
             display: block;

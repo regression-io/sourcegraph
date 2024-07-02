@@ -3,6 +3,7 @@ import React, { type FC, useState, useCallback, useRef, useEffect } from 'react'
 import { noop } from 'lodash'
 
 import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 import {
     Alert,
     Container,
@@ -17,7 +18,6 @@ import {
 } from '@sourcegraph/wildcard'
 
 import { GitHubAppDomain } from '../../graphql-operations'
-import { eventLogger } from '../../tracking/eventLogger'
 import { PageTitle } from '../PageTitle'
 
 interface StateResponse {
@@ -91,7 +91,7 @@ export const CreateGitHubAppPage: FC<CreateGitHubAppPageProps> = ({
     const [error, setError] = useState<string>()
 
     useEffect(() => {
-        eventLogger.logPageView('SiteAdminCreateGiHubApp')
+        EVENT_LOGGER.logPageView('SiteAdminCreateGiHubApp')
         telemetryRecorder.recordEvent('admin.GitHubApp.create', 'view')
     }, [telemetryRecorder])
 
@@ -219,7 +219,7 @@ export const CreateGitHubAppPage: FC<CreateGitHubAppPageProps> = ({
                     headerDescription || (
                         <>
                             Register a GitHub App to better manage GitHub code host connections.{' '}
-                            <Link to="/help/admin/external_service/github#using-a-github-app" target="_blank">
+                            <Link to="/help/admin/code_hosts/github#using-a-github-app" target="_blank">
                                 See how GitHub App configuration works.
                             </Link>
                         </>
@@ -305,7 +305,7 @@ export const CreateGitHubAppPage: FC<CreateGitHubAppPageProps> = ({
                             Your GitHub App must be public if you want to install it on multiple organizations or user
                             accounts.{' '}
                             <Link
-                                to="/help/admin/external_service/github#multiple-installations"
+                                to="/help/admin/code_hosts/github#multiple-installations"
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >

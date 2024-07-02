@@ -150,7 +150,11 @@ func (s searchQuery) toRepoRevSpecs(ctx context.Context, repoRevSpec types.Repos
 
 	var revs []query.RevisionSpecifier
 	for _, revspec := range repoRevSpec.RevisionSpecifiers.Get() {
-		revs = append(revs, query.ParseRevisionSpecifier(revspec))
+		rs, err := query.ParseRevisionSpecifier(revspec)
+		if err != nil {
+			return repos.RepoRevSpecs{}, err
+		}
+		revs = append(revs, rs)
 	}
 
 	return repos.RepoRevSpecs{
@@ -206,7 +210,7 @@ func (s searchQuery) Search(ctx context.Context, repoRev types.RepositoryRevisio
 	// An empty repository we treat as success. When searching HEAD we haven't
 	// yet validated the commit actually exists so we need to ignore at this
 	// point. We should consider
-	if repoRev.Revision == "HEAD" && errors.HasType(err, &gitdomain.RevisionNotFoundError{}) {
+	if repoRev.Revision == "HEAD" && errors.HasType[*gitdomain.RevisionNotFoundError](err) {
 		return nil
 	}
 
@@ -227,6 +231,5 @@ func (s searchQuery) minimalRepo(ctx context.Context, repoID api.RepoID) (sgtype
 }
 
 func isReposMissingError(err error) bool {
-	var m repos.MissingRepoRevsError
-	return errors.Is(err, repos.ErrNoResolvedRepos) || errors.HasType(err, &m)
+	return errors.Is(err, repos.ErrNoResolvedRepos) || errors.HasType[*repos.MissingRepoRevsError](err)
 }

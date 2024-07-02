@@ -8,6 +8,8 @@ import (
 
 type CodyContextResolver interface {
 	GetCodyContext(ctx context.Context, args GetContextArgs) ([]ContextResultResolver, error)
+	GetCodyIntent(ctx context.Context, args GetIntentArgs) (IntentResolver, error)
+	ChatIntent(ctx context.Context, args ChatIntentArgs) (IntentResolver, error)
 }
 
 type GetContextArgs struct {
@@ -15,6 +17,19 @@ type GetContextArgs struct {
 	Query            string
 	CodeResultsCount int32
 	TextResultsCount int32
+}
+
+type GetIntentArgs struct {
+	Query string
+}
+
+type ChatIntentArgs struct {
+	Query string
+}
+
+type IntentResolver interface {
+	Intent() string
+	Score() float64
 }
 
 type ContextResultResolver interface {
@@ -44,9 +59,8 @@ func (f *FileChunkContextResolver) ToFileChunkContext() (*FileChunkContextResolv
 }
 
 func (f *FileChunkContextResolver) ChunkContent(ctx context.Context) (string, error) {
-	startLine, endLine := int32(f.startLine), int32(f.endLine)
 	return f.treeEntry.Content(ctx, &GitTreeContentPageArgs{
-		StartLine: &startLine,
-		EndLine:   &endLine,
+		StartLine: &f.startLine,
+		EndLine:   &f.endLine,
 	})
 }

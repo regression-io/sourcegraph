@@ -6,11 +6,13 @@ go_library(
     srcs = [
         "alertpolicy.go",
         "conditionbuilder.go",
+        "customalert.go",
         "metricabsence.go",
         "responsecode.go",
         "thresholdaggregation.go",
     ],
     importpath = "github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/resource/alertpolicy",
+    tags = [TAG_INFRA_CORESERVICES],
     visibility = ["//dev/managedservicesplatform:__subpackages__"],
     deps = [
         "//dev/managedservicesplatform/internal/resourceid",
@@ -27,9 +29,11 @@ go_test(
     name = "alertpolicy_test",
     srcs = [
         "conditionbuilder_test.go",
+        "customalert_test.go",
         "responsecode_test.go",
     ],
     embed = [":alertpolicy"],
+    tags = [TAG_INFRA_CORESERVICES],
     deps = [
         "//lib/pointers",
         "@com_github_hexops_autogold_v2//:autogold",

@@ -1,33 +1,38 @@
 <!--
-    @component
-    Creates an SVG icon. You can overwrite the color by using the --color
-    style directive:
+  @component
+  Provides a convenient API to render SVG icons.
 
-    <Icon svgPath={...} --color="other color" />
+  Use Lucide icons by referring to them as `ILucide<IconName>`. For example:
 
-    Otherwise the current text color is used.
+      <Icon icon={ILucideChevronDown} />
+
+  See https://lucide.dev/icons/ for a list of available icons.
 -->
-<script lang="ts">
-    import type { SVGAttributes } from 'svelte/elements'
-
-    interface $$Props extends SVGAttributes<SVGElement> {
-        svgPath: string
-        inline?: boolean
-        size?: number
-    }
-
-    export let svgPath: string
-    export let inline: boolean = false
-    export let size: number = 24
+<script lang="ts" context="module">
+    export type IconComponent = ComponentType<
+        SvelteComponent<SvelteHTMLElements['svg'] & { [key: `data-${string}`]: any }>
+    >
 </script>
 
-<svg class:icon-inline={inline} height={size} width={size} viewBox="0 0 24 24" {...$$restProps}>
-    <path d={svgPath} />
-</svg>
+<script lang="ts">
+    import type { ComponentType, SvelteComponent } from 'svelte'
+    import type { SvelteHTMLElements } from 'svelte/elements'
 
-<style lang="scss">
-    svg {
-        color: var(--color, inherit);
-        fill: currentColor;
+    import style from './Icon.module.scss'
+
+    type $$Props = SvelteHTMLElements['svg'] & {
+        /**
+         * The SVG icon component to render.
+         */
+        icon: IconComponent
+        /**
+         * Render the icon inline next to text.
+         */
+        inline?: boolean
     }
-</style>
+
+    export let icon: IconComponent
+    export let inline: boolean = false
+</script>
+
+<svelte:component this={icon} data-icon class="{style.icon} {inline ? style.iconInline : ''}" {...$$restProps} />

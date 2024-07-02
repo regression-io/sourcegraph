@@ -372,7 +372,17 @@ func (r *NodeResolver) ToGitserverInstance() (*gitserverResolver, bool) {
 	return n, ok
 }
 
+func (r *NodeResolver) ToIndexedSearchInstance() (*indexedSearchInstance, bool) {
+	n, ok := r.Node.(*indexedSearchInstance)
+	return n, ok
+}
+
 func (r *NodeResolver) ToSearchJob() (SearchJobResolver, bool) {
 	n, ok := r.Node.(SearchJobResolver)
+	return n, ok
+}
+
+func (r *NodeResolver) ToCodeGraphData() (resolverstubs.CodeGraphDataResolver, bool) {
+	n, ok := r.Node.(resolverstubs.CodeGraphDataResolver)
 	return n, ok
 }

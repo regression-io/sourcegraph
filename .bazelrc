@@ -31,6 +31,7 @@ try-import %workspace%/.bazelrc-nix
 common --enable_platform_specific_config
 common:macos --extra_toolchains @zig_sdk//toolchain:linux_amd64_gnu.2.34
 common:macos --sandbox_add_mount_pair=/tmp
+common:macos --experimental_inprocess_symlink_creation
 
 # Helper to run only fast go unit tests
 test:go-short --test_tag_filters=go --test_timeout_filters=short
@@ -42,8 +43,11 @@ test:go-verbose-test --test_env=GO_TEST_WRAP_TESTV=1
 # we instead disable it.
 common --noincompatible_disallow_empty_glob
 
-# Ensure clippy runs for rust targets
+# Ensure clippy and rustfmt run for Rust targets
 build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
 build --output_groups=+clippy_checks
+build --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect
+build --output_groups=+rustfmt_checks
+build --@rules_rust//:rustfmt.toml=//docker-images/syntax-highlighter:rustfmt.toml
 
 common --noenable_bzlmod

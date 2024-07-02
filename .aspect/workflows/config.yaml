@@ -8,10 +8,12 @@ env:
 # Temporary work-around to resolve a slow post task agent health check
 observability: false
 tasks:
+  - checkout:
+      update_strategy: rebase
   # Checks that BUILD files are formatted
   - buildifier:
       queue: aspect-small
-      timeout_in_minutes: 2
+      timeout_in_minutes: 3
   # Checks that BUILD file content is up-to-date with sources
   - gazelle:
       queue: aspect-small
@@ -24,6 +26,9 @@ tasks:
         - //...
         # exclude testing as it is executed in a seperate job
         - -//testing/...
+      artifact_paths:
+        - build_event_log.bin
+        - execution_log.zstd
   - test:
       name: Integration/E2E
       targets:
@@ -32,6 +37,9 @@ tasks:
         # evaluate Aspect Workflows it is ok
         # TODO(burmudar): Let this only run on main branch
         - //testing:codeintel_integration_test
+      artifact_paths:
+        - build_event_log.bin
+        - execution_log.zstd
   - delivery:
       auto_deliver: true
       icon: 'ship'

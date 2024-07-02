@@ -16,29 +16,23 @@ type operations struct {
 	archiveReader            *observation.Operation
 	commits                  *observation.Operation
 	contributorCount         *observation.Operation
-	exec                     *observation.Operation
 	firstEverCommit          *observation.Operation
-	getBehindAhead           *observation.Operation
+	behindAhead              *observation.Operation
 	getCommit                *observation.Operation
-	hasCommitAfter           *observation.Operation
-	listBranches             *observation.Operation
 	listRefs                 *observation.Operation
-	listTags                 *observation.Operation
 	lstat                    *observation.Operation
 	mergeBase                *observation.Operation
 	newFileReader            *observation.Operation
 	readDir                  *observation.Operation
 	resolveRevision          *observation.Operation
-	revList                  *observation.Operation
+	revAtTime                *observation.Operation
 	search                   *observation.Operation
 	stat                     *observation.Operation
 	streamBlameFile          *observation.Operation
 	systemsInfo              *observation.Operation
 	systemInfo               *observation.Operation
-	requestRepoUpdate        *observation.Operation
 	isRepoCloneable          *observation.Operation
 	repoCloneProgress        *observation.Operation
-	remove                   *observation.Operation
 	isPerforcePathCloneable  *observation.Operation
 	checkPerforceCredentials *observation.Operation
 	perforceUsers            *observation.Operation
@@ -49,18 +43,9 @@ type operations struct {
 	perforceGetChangelist    *observation.Operation
 	createCommitFromPatch    *observation.Operation
 	getObject                *observation.Operation
-	commitGraph              *observation.Operation
-	refDescriptions          *observation.Operation
-	branchesContaining       *observation.Operation
-	commitsUniqueToBranch    *observation.Operation
 	getDefaultBranch         *observation.Operation
-	listDirectoryChildren    *observation.Operation
-	lsFiles                  *observation.Operation
-	logReverseEach           *observation.Operation
-	diffSymbols              *observation.Operation
-	diffPath                 *observation.Operation
-	commitLog                *observation.Operation
 	diff                     *observation.Operation
+	changedFiles             *observation.Operation
 }
 
 func newOperations(observationCtx *observation.Context) *operations {
@@ -101,7 +86,7 @@ func newOperations(observationCtx *observation.Context) *operations {
 		MetricLabelValues: []string{"ResolveRevision"},
 		Metrics:           redMetrics,
 		ErrorFilter: func(err error) observation.ErrorFilterBehaviour {
-			if errors.HasType(err, &gitdomain.RevisionNotFoundError{}) {
+			if errors.HasType[*gitdomain.RevisionNotFoundError](err) {
 				return observation.EmitForMetrics
 			}
 			return observation.EmitForSentry
@@ -112,29 +97,23 @@ func newOperations(observationCtx *observation.Context) *operations {
 		archiveReader:            op("ArchiveReader"),
 		commits:                  op("Commits"),
 		contributorCount:         op("ContributorCount"),
-		exec:                     op("Exec"),
 		firstEverCommit:          op("FirstEverCommit"),
-		getBehindAhead:           op("GetBehindAhead"),
+		behindAhead:              op("BehindAhead"),
 		getCommit:                op("GetCommit"),
-		hasCommitAfter:           op("HasCommitAfter"),
-		listBranches:             op("ListBranches"),
 		listRefs:                 op("ListRefs"),
-		listTags:                 op("ListTags"),
 		lstat:                    subOp("lStat"),
 		mergeBase:                op("MergeBase"),
 		newFileReader:            op("NewFileReader"),
 		readDir:                  op("ReadDir"),
 		resolveRevision:          resolveRevisionOperation,
-		revList:                  op("RevList"),
+		revAtTime:                op("RevAtTime"),
 		search:                   op("Search"),
 		stat:                     op("Stat"),
 		streamBlameFile:          op("StreamBlameFile"),
 		systemsInfo:              op("SystemsInfo"),
 		systemInfo:               op("SystemInfo"),
-		requestRepoUpdate:        op("RequestRepoUpdate"),
 		isRepoCloneable:          op("IsRepoCloneable"),
 		repoCloneProgress:        op("RepoCloneProgress"),
-		remove:                   op("Remove"),
 		isPerforcePathCloneable:  op("IsPerforcePathCloneable"),
 		checkPerforceCredentials: op("CheckPerforceCredentials"),
 		perforceUsers:            op("PerforceUsers"),
@@ -145,18 +124,9 @@ func newOperations(observationCtx *observation.Context) *operations {
 		perforceGetChangelist:    op("PerforceGetChangelist"),
 		createCommitFromPatch:    op("CreateCommitFromPatch"),
 		getObject:                op("GetObject"),
-		commitGraph:              op("CommitGraph"),
-		refDescriptions:          op("RefDescriptions"),
-		branchesContaining:       op("BranchesContaining"),
-		commitsUniqueToBranch:    op("CommitsUniqueToBranch"),
 		getDefaultBranch:         op("GetDefaultBranch"),
-		listDirectoryChildren:    op("ListDirectoryChildren"),
-		lsFiles:                  op("LsFiles"),
-		logReverseEach:           op("LogReverseEach"),
-		diffSymbols:              op("DiffSymbols"),
-		diffPath:                 op("DiffPath"),
-		commitLog:                op("CommitLog"),
 		diff:                     op("Diff"),
+		changedFiles:             op("ChangedFiles"),
 	}
 }
 

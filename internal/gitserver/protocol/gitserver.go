@@ -219,76 +219,8 @@ func SignatureFromProto(p *proto.CommitMatch_Signature) Signature {
 // internal proxy route and any major change to this structure will need to
 // be reconciled in both places.
 type ExecRequest struct {
-	Repo      api.RepoName `json:"repo"`
-	Args      []string     `json:"args"`
-	NoTimeout bool         `json:"noTimeout"`
-}
-
-// RepoUpdateRequest is a request to update the contents of a given repo, or clone it if it doesn't exist.
-type RepoUpdateRequest struct {
-	// Repo identifies URL for repo.
 	Repo api.RepoName `json:"repo"`
-}
-
-func (r *RepoUpdateRequest) ToProto() *proto.RepoUpdateRequest {
-	return &proto.RepoUpdateRequest{
-		Repo: string(r.Repo),
-	}
-}
-
-func (r *RepoUpdateRequest) FromProto(p *proto.RepoUpdateRequest) {
-	*r = RepoUpdateRequest{
-		Repo: api.RepoName(p.GetRepo()),
-	}
-}
-
-// RepoUpdateResponse returns meta information of the repo enqueued for update.
-type RepoUpdateResponse struct {
-	LastFetched *time.Time `json:",omitempty"`
-	LastChanged *time.Time `json:",omitempty"`
-
-	// Error is an error reported by the update operation, and not a network protocol error.
-	Error string `json:",omitempty"`
-}
-
-func (r *RepoUpdateResponse) ToProto() *proto.RepoUpdateResponse {
-	var lastFetched, lastChanged *timestamppb.Timestamp
-	if r.LastFetched != nil {
-		lastFetched = timestamppb.New(*r.LastFetched)
-	}
-
-	if r.LastChanged != nil {
-		lastChanged = timestamppb.New(*r.LastChanged)
-	}
-
-	return &proto.RepoUpdateResponse{
-		LastFetched: timestamppb.New(lastFetched.AsTime()),
-		LastChanged: timestamppb.New(lastChanged.AsTime()),
-		Error:       r.Error,
-	}
-}
-
-func (r *RepoUpdateResponse) FromProto(p *proto.RepoUpdateResponse) {
-	var lastFetched, lastChanged time.Time
-	if p.GetLastFetched() != nil {
-		lf := p.GetLastFetched().AsTime()
-		lastFetched = lf
-	} else {
-		lastFetched = time.Time{}
-	}
-
-	if p.GetLastChanged() != nil {
-		lc := p.GetLastChanged().AsTime()
-		lastChanged = lc
-	} else {
-		lastChanged = time.Time{}
-	}
-
-	*r = RepoUpdateResponse{
-		LastFetched: &lastFetched,
-		LastChanged: &lastChanged,
-		Error:       p.GetError(),
-	}
+	Args []string     `json:"args"`
 }
 
 // IsRepoCloneableRequest is a request to determine if a repo is cloneable.
@@ -318,12 +250,6 @@ func (i *IsRepoCloneableResponse) FromProto(p *proto.IsRepoCloneableResponse) {
 		Cloned:    p.GetCloned(),
 		Reason:    p.GetReason(),
 	}
-}
-
-// RepoDeleteRequest is a request to delete a repository clone on gitserver
-type RepoDeleteRequest struct {
-	// Repo is the repository to delete.
-	Repo api.RepoName
 }
 
 // RepoCloneProgress is information about the clone progress of a repo
@@ -358,31 +284,28 @@ type CreateCommitFromPatchRequest struct {
 	BaseCommit api.CommitID
 	// Patch is the diff contents to be used to create the staging area revision
 	Patch []byte
+	// PatchFilenamesNoPrefix indicates that the filenames in patch are not prefixed
+	// with the usual a/ and b/ prefixes.
+	PatchFilenamesNoPrefix bool
 	// TargetRef is the ref that will be created for this patch
 	TargetRef string
-	// If set to true and the TargetRef already exists, an unique number will be appended to the end (ie TargetRef-{#}). The generated ref will be returned.
-	UniqueRef bool
 	// CommitInfo is the information that will be used when creating the commit from a patch
 	CommitInfo PatchCommitInfo
 	// Push specifies whether the target ref will be pushed to the code host: if
 	// nil, no push will be attempted, if non-nil, a push will be attempted.
 	Push *PushConfig
-	// GitApplyArgs are the arguments that will be passed to `git apply` along
-	// with `--cached`.
-	GitApplyArgs []string
 	// If specified, the changes will be pushed to this ref as opposed to TargetRef.
 	PushRef *string
 }
 
 func (c *CreateCommitFromPatchRequest) ToMetadataProto() *proto.CreateCommitFromPatchBinaryRequest_Metadata {
 	cc := &proto.CreateCommitFromPatchBinaryRequest_Metadata{
-		Repo:         string(c.Repo),
-		BaseCommit:   string(c.BaseCommit),
-		TargetRef:    c.TargetRef,
-		UniqueRef:    c.UniqueRef,
-		CommitInfo:   c.CommitInfo.ToProto(),
-		GitApplyArgs: c.GitApplyArgs,
-		PushRef:      c.PushRef,
+		Repo:                   string(c.Repo),
+		BaseCommit:             string(c.BaseCommit),
+		TargetRef:              c.TargetRef,
+		CommitInfo:             c.CommitInfo.ToProto(),
+		PushRef:                c.PushRef,
+		PatchFilenamesNoPrefix: c.PatchFilenamesNoPrefix,
 	}
 
 	if c.Push != nil {
@@ -401,13 +324,12 @@ func (c *CreateCommitFromPatchRequest) FromProto(p *proto.CreateCommitFromPatchB
 	}
 
 	*c = CreateCommitFromPatchRequest{
-		Repo:         api.RepoName(p.GetRepo()),
-		BaseCommit:   api.CommitID(p.GetBaseCommit()),
-		TargetRef:    p.GetTargetRef(),
-		UniqueRef:    p.GetUniqueRef(),
-		CommitInfo:   PatchCommitInfoFromProto(p.GetCommitInfo()),
-		Push:         pushConfig,
-		GitApplyArgs: p.GetGitApplyArgs(),
+		Repo:                   api.RepoName(p.GetRepo()),
+		BaseCommit:             api.CommitID(p.GetBaseCommit()),
+		TargetRef:              p.GetTargetRef(),
+		CommitInfo:             PatchCommitInfoFromProto(p.GetCommitInfo()),
+		Push:                   pushConfig,
+		PatchFilenamesNoPrefix: p.GetPatchFilenamesNoPrefix(),
 	}
 
 	if p != nil {
@@ -616,7 +538,6 @@ func (r *GetObjectResponse) FromProto(p *proto.GetObjectResponse) {
 	*r = GetObjectResponse{
 		Object: gitObj,
 	}
-
 }
 
 // IsPerforcePathCloneableRequest is the request to check if a Perforce path is cloneable.

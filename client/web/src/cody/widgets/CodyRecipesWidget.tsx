@@ -4,9 +4,10 @@ import { mdiCardBulletedOutline, mdiDotsVertical, mdiProgressPencil, mdiShuffleV
 
 import { TranslateToLanguage } from '@sourcegraph/cody-shared'
 import type { TelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 
-import { eventLogger } from '../../tracking/eventLogger'
 import { EventName } from '../../util/constants'
+import { CodyProRoutes } from '../codyProRoutes'
 import type { CodeMirrorEditor } from '../components/CodeMirrorEditor'
 import type { useCodySidebar } from '../sidebar/Provider'
 
@@ -19,7 +20,7 @@ export const CodyRecipesWidget: React.FC<{ editor?: CodeMirrorEditor; telemetryR
     telemetryRecorder,
 }) => {
     useEffect(() => {
-        eventLogger.log(EventName.CODY_CHAT_EDITOR_WIDGET_VIEWED)
+        EVENT_LOGGER.log(EventName.CODY_CHAT_EDITOR_WIDGET_VIEWED)
         telemetryRecorder.recordEvent('cody.chat.editor-widget', 'view')
     }, [telemetryRecorder])
 
@@ -90,7 +91,11 @@ export const CodyRecipesWidget: React.FC<{ editor?: CodeMirrorEditor; telemetryR
                     onClick={() => void executeRecipe('find-code-smells', { scope: { editor } })}
                     disabled={isMessageInProgress}
                 />
-                <RecipeAction title="Get Cody in your editor" to="/cody/manage" disabled={isMessageInProgress} />
+                <RecipeAction
+                    title="Get Cody in your editor"
+                    to={CodyProRoutes.Manage}
+                    disabled={isMessageInProgress}
+                />
             </Recipe>
         </Recipes>
     )

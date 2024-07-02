@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -180,23 +181,32 @@ func TestEnvironmentJobScheduleSpecFindMaxCronInterval(t *testing.T) {
 			wantInterval: time.Hour,
 		},
 		{
-			name: "small interval",
+			name: "interval too small",
 			spec: EnvironmentJobScheduleSpec{
 				Cron: "* * * * *",
 			},
-			wantInterval: time.Minute,
+			wantError: autogold.Expect("the longest interval must be >15m, got 1m0s"),
+		},
+		{
+			name: "hourly and weekends off",
+			spec: EnvironmentJobScheduleSpec{
+				Cron: "0 * * * 1-5",
+			},
+			wantInterval: 49 * time.Hour, // 2 weekend days
 		},
 		{
 			name: "monthly interval forbidden",
 			spec: EnvironmentJobScheduleSpec{
 				Cron: "0 0 1 * *", // once per month
 			},
-			wantError: autogold.Expect("the longest interval must be <28 days, got 744h0m0s"),
+			wantError: autogold.Expect("the longest interval must be <8 days, got 744h0m0s"),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc := tc
-			interval, err := tc.spec.FindMaxCronInterval()
+
+			now := time.Now()
+			interval, err := tc.spec.FindMaxCronInterval(now)
 			if tc.wantError != nil {
 				assert.Error(t, err)
 				tc.wantError.Equal(t, err.Error())
@@ -204,6 +214,106 @@ func TestEnvironmentJobScheduleSpecFindMaxCronInterval(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantInterval, *interval)
+
+			if tc.wantError != nil {
+				return
+			}
+
+			// Make sure at various times from now, the interval doesn't change.
+			for _, fromNow := range []time.Duration{
+				12 * time.Hour,
+				48 * time.Hour,
+				64 * time.Hour,
+				128 * time.Hour,
+				256 * time.Hour,
+			} {
+				t.Run(fmt.Sprintf("%s from now", fromNow.String()), func(t *testing.T) {
+					spec := tc.spec
+					newInterval, err := spec.FindMaxCronInterval(now.Add(fromNow))
+					require.NoError(t, err)
+					assert.Equal(t, interval.String(), newInterval.String())
+				})
+			}
 		})
 	}
+}
+
+func TestEnvironmentDeploySpec_Validate(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     EnvironmentDeploySpec
+		wantErrs autogold.Value
+	}{
+		{
+			name: "manual type with subscription",
+			spec: EnvironmentDeploySpec{
+				Type:         EnvironmentDeployTypeManual,
+				Subscription: &EnvironmentDeployTypeSubscriptionSpec{},
+			},
+			wantErrs: autogold.Expect([]string{"subscription deploy spec provided when type is manual"}),
+		},
+		{
+			name: "subscription type with manual",
+			spec: EnvironmentDeploySpec{
+				Type:   EnvironmentDeployTypeSubscription,
+				Manual: &EnvironmentDeployManualSpec{},
+			},
+			wantErrs: autogold.Expect([]string{"manual deploy spec provided when type is subscription"}),
+		},
+		{
+			name: "subscription type without subscription",
+			spec: EnvironmentDeploySpec{
+				Type: EnvironmentDeployTypeSubscription,
+			},
+			wantErrs: autogold.Expect([]string{"no subscription specified when deploy type is subscription"}),
+		},
+		{
+			name: "subscription type with empty tag",
+			spec: EnvironmentDeploySpec{
+				Type:         EnvironmentDeployTypeSubscription,
+				Subscription: &EnvironmentDeployTypeSubscriptionSpec{},
+			},
+			wantErrs: autogold.Expect([]string{"no tag in image subscription specified"}),
+		},
+		{
+			name: "subscription type with tag",
+			spec: EnvironmentDeploySpec{
+				Type: EnvironmentDeployTypeSubscription,
+				Subscription: &EnvironmentDeployTypeSubscriptionSpec{
+					Tag: "insiders",
+				},
+			},
+		},
+		{
+			name: "rollout type",
+			spec: EnvironmentDeploySpec{
+				Type: EnvironmentDeployTypeRollout,
+			},
+		},
+		{
+			name: "invalid type",
+			spec: EnvironmentDeploySpec{
+				Type: "invalid",
+			},
+			wantErrs: autogold.Expect([]string{`invalid deploy type "invalid"`}),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := stringifyErrors(tc.spec.Validate())
+			if tc.wantErrs == nil {
+				assert.Empty(t, errs)
+			} else {
+				tc.wantErrs.Equal(t, errs)
+			}
+		})
+	}
+}
+
+func stringifyErrors(errs []error) (values []string) {
+	for _, errs := range errs {
+		values = append(values, errs.Error())
+	}
+	return values
 }

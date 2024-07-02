@@ -66,7 +66,7 @@ func (u *updateUserProfileData) Update(ctx context.Context, before, after *scim.
 		return nil
 	}
 
-	usernameUpdate, err := getUniqueUsername(ctx, u.tx.Users(), extractStringAttribute(after.Attributes, AttrUserName))
+	usernameUpdate, err := getUniqueUsername(ctx, u.tx.Users(), u.userID, requestedUsername)
 	if err != nil {
 		return scimerrors.ScimError{Status: http.StatusBadRequest, Detail: errors.Wrap(err, "invalid username").Error()}
 	}
@@ -165,39 +165,6 @@ func (u *updateUserEmailData) Update(ctx context.Context, before, after *scim.Re
 		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// Action to delete the user when SCIM changes the active flag to "false"
-// This is a temporary action that will be replaced when soft delete is supported
-type hardDeleteInactiveUser struct {
-	user *User
-	tx   database.DB
-}
-
-func (u *hardDeleteInactiveUser) Update(ctx context.Context, before, after *scim.Resource) error {
-	// Check if user has been deactivated
-	if after.Attributes[AttrActive] != false {
-		return nil
-	}
-	// Save username, verified emails, and external accounts to be used for revoking user permissions after deletion
-	revokeUserPermissionsArgsList, err := getRevokeUserPermissionArgs(ctx, u.user.UserForSCIM, u.tx)
-	if err != nil {
-		return err
-	}
-
-	if err := u.tx.Users().HardDelete(ctx, u.user.ID); err != nil {
-		return err
-	}
-
-	// NOTE: Practically, we don't reuse the ID for any new users, and the situation of left-over pending permissions
-	// is possible but highly unlikely. Therefore, there is no need to roll back user deletion even if this step failed.
-	// This call is purely for the purpose of cleanup.
-	err = u.tx.Authz().RevokeUserPermissionsList(ctx, []*database.RevokeUserPermissionsArgs{revokeUserPermissionsArgsList})
-
-	if err != nil {
-		return scimerrors.ScimError{Status: http.StatusInternalServerError, Detail: errors.Wrap(err, "could not update").Error()}
 	}
 	return nil
 }

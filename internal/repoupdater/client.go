@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/sourcegraph/log"
-	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -16,8 +15,6 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/grpc/defaults"
 	"github.com/sourcegraph/sourcegraph/internal/repoupdater/protocol"
 	proto "github.com/sourcegraph/sourcegraph/internal/repoupdater/v1"
-	"github.com/sourcegraph/sourcegraph/internal/trace"
-	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
 
 var (
@@ -80,50 +77,16 @@ func (c *Client) RepoUpdateSchedulerInfo(
 	return protocol.RepoUpdateSchedulerInfoResultFromProto(resp), nil
 }
 
-// MockRepoLookup mocks (*Client).RepoLookup for tests.
-var MockRepoLookup func(protocol.RepoLookupArgs) (*protocol.RepoLookupResult, error)
-
-// RepoLookup retrieves information about the repository on repoupdater.
-func (c *Client) RepoLookup(
-	ctx context.Context,
-	args protocol.RepoLookupArgs,
-) (result *protocol.RepoLookupResult, err error) {
-	if MockRepoLookup != nil {
-		return MockRepoLookup(args)
-	}
-
-	tr, ctx := trace.New(ctx, "repoupdater.RepoLookup",
-		args.Repo.Attr())
-	defer func() {
-		if result != nil {
-			tr.SetAttributes(attribute.Bool("found", result.Repo != nil))
-		}
-		tr.EndWithErr(&err)
-	}()
-
+func (c *Client) RecloneRepository(ctx context.Context, repoName api.RepoName) error {
 	client, err := c.grpcClient()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	resp, err := client.RepoLookup(ctx, args.ToProto())
-	if err != nil {
-		return nil, errors.Wrapf(err, "RepoLookup for %+v failed", args)
-	}
-	res := protocol.RepoLookupResultFromProto(resp)
-	switch {
-	case resp.GetErrorNotFound():
-		return res, &ErrNotFound{Repo: args.Repo, IsNotFound: true}
-	case resp.GetErrorUnauthorized():
-		return res, &ErrUnauthorized{Repo: args.Repo, NoAuthz: true}
-	case resp.GetErrorTemporarilyUnavailable():
-		return res, &ErrTemporary{Repo: args.Repo, IsTemporary: true}
-	case resp.GetErrorRepoDenied() != "":
-		return res, &ErrRepoDenied{
-			Repo:   args.Repo,
-			Reason: resp.GetErrorRepoDenied(),
-		}
-	}
-	return res, nil
+
+	_, err = client.RecloneRepository(ctx, &proto.RecloneRepositoryRequest{
+		RepoName: string(repoName),
+	})
+	return err
 }
 
 // MockEnqueueRepoUpdate mocks (*Client).EnqueueRepoUpdate for tests.

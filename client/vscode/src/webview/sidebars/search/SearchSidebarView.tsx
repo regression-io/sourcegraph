@@ -28,6 +28,7 @@ import { FilterType } from '@sourcegraph/shared/src/search/query/filters'
 import { type Filter, LATEST_VERSION } from '@sourcegraph/shared/src/search/stream'
 import { SectionID } from '@sourcegraph/shared/src/settings/temporary/searchSidebar'
 import { useTemporarySetting } from '@sourcegraph/shared/src/settings/temporary/useTemporarySetting'
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { Code, useObservable } from '@sourcegraph/wildcard'
 
 import { SearchPatternType } from '../../../graphql-operations'
@@ -58,6 +59,7 @@ export const SearchSidebarView: FC<SearchSidebarViewProps> = React.memo(function
                 queryState: { query: '' },
                 searchCaseSensitivity: false,
                 searchPatternType: SearchPatternType.standard,
+                defaultPatternType: SearchPatternType.standard, // Not used here
                 searchQueryFromURL: '',
                 searchMode: SearchMode.Precise,
 
@@ -141,6 +143,7 @@ export const SearchSidebarView: FC<SearchSidebarViewProps> = React.memo(function
                     historyOrNavigate: navigate,
                     location,
                     source: 'filter',
+                    telemetryRecorder: noOpTelemetryRecorder,
                 },
                 updates
             ),
@@ -148,7 +151,7 @@ export const SearchSidebarView: FC<SearchSidebarViewProps> = React.memo(function
     )
 
     const onDynamicFilterClicked = useCallback(
-        (value: string, kind?: string) => {
+        (value: string, kind?: Filter['kind']) => {
             platformContext.telemetryService.log('DynamicFilterClicked', { search_filter: { kind } })
             handleSidebarSearchSubmit([{ type: 'toggleSubquery', value }])
         },
@@ -202,6 +205,7 @@ export const SearchSidebarView: FC<SearchSidebarViewProps> = React.memo(function
                 >
                     {getSearchReferenceFactory({
                         telemetryService: platformContext.telemetryService,
+                        telemetryRecorder: platformContext.telemetryRecorder,
                         setQueryState,
                     })}
                 </SearchSidebarSection>

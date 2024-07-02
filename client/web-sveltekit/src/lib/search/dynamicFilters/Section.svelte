@@ -1,17 +1,14 @@
 <script lang="ts">
-    import { mdiClose } from '@mdi/js'
-
-    import { page } from '$app/stores'
-    import Icon from '$lib/Icon.svelte'
     import { Button } from '$lib/wildcard'
 
-    import CountBadge from './CountBadge.svelte'
-    import { updateFilterInURL, type SectionItem } from './index'
+    import type { SectionItemData } from './index.ts'
+    import SectionItem from './SectionItem.svelte'
 
-    export let items: SectionItem[]
+    export let items: SectionItemData[]
     export let title: string
     export let filterPlaceholder: string = ''
     export let showAll: boolean = false
+    export let onFilterSelect: (kind: SectionItem['kind']) => void = () => {}
 
     let filterText = ''
     $: processedFilterText = filterText.trim().toLowerCase()
@@ -34,22 +31,9 @@
         <ul>
             {#each limitedItems as item}
                 <li>
-                    <a
-                        href={updateFilterInURL($page.url, item, item.selected).toString()}
-                        class:selected={item.selected}
-                    >
-                        <span class="label">
-                            <slot name="label" label={item.label} value={item.value}>
-                                {item.label}
-                            </slot>
-                        </span>
-                        <CountBadge count={item.count} exhaustive={item.exhaustive} />
-                        {#if item.selected}
-                            <span class="close">
-                                <Icon svgPath={mdiClose} inline />
-                            </span>
-                        {/if}
-                    </a>
+                    <slot name="item" {item}>
+                        <SectionItem {item} {onFilterSelect} />
+                    </slot>
                 </li>
             {/each}
         </ul>
@@ -84,7 +68,7 @@
         padding: 0 1rem;
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
+        gap: 0.25rem;
     }
 
     input {
@@ -103,6 +87,9 @@
     }
 
     ul {
+        display: flex;
+        flex-flow: column nowrap;
+        gap: 0.125rem;
         margin: 0;
         padding: 0;
         list-style: none;
@@ -129,42 +116,5 @@
 
     .show-more {
         text-align: center;
-    }
-
-    a {
-        display: flex;
-        width: 100%;
-        align-items: center;
-        border: none;
-        text-align: left;
-        text-decoration: none;
-        border-radius: var(--border-radius);
-        color: inherit;
-        white-space: nowrap;
-        gap: 0.25rem;
-
-        padding: 0.25rem 0.25rem 0.25rem 0.5rem;
-        margin: 0;
-        font-weight: 400;
-
-        .label {
-            flex: 1;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
-
-        &:hover {
-            background-color: var(--secondary-2);
-        }
-
-        &.selected {
-            background-color: var(--primary);
-            color: var(--primary-4);
-            --color: var(--primary-4);
-        }
-
-        .close {
-            flex-shrink: 0;
-        }
     }
 </style>

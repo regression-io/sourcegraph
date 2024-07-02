@@ -98,30 +98,23 @@ type MetricAbsence struct {
 //
 // `ExcludeCodes` allows filtering out specific response codes from the `CodeClass`
 type ResponseCodeMetric struct {
-	Code         *int
-	CodeClass    *string
-	ExcludeCodes []string
-	Ratio        float64
-	Duration     *string
+	Code            *int
+	CodeClass       *string
+	ExcludeCodes    []string
+	Ratio           float64
+	DurationMinutes *uint
 }
-
-type SeverityLevel string
-
-const (
-	SeverityLevelWarning  = "WARNING"
-	SeverityLevelCritical = "CRITICAL"
-)
 
 // DescriptionSuffix points to the service page and environment anchor expected to be
 // generated at https://handbook.sourcegraph.com/departments/engineering/teams/core-services/managed-services/platform/,
 // and should be added as a suffix to all alert descriptions.
-func DescriptionSuffix(serviceID, environmentID string) string {
-	return fmt.Sprintf(`See https://handbook.sourcegraph.com/departments/engineering/managed-services/%s#%s for service and infrastructure access details.
+func DescriptionSuffix(s spec.ServiceSpec, environmentID string) string {
+	return fmt.Sprintf(`See %s -> **%s** for service and infrastructure access details for this environment.
 If you need additional assistance, reach out to #discuss-core-services.`,
-		serviceID, environmentID)
+		s.GetHandbookPageURL(), environmentID)
 }
 
-type NotificationChannels map[SeverityLevel][]monitoringnotificationchannel.MonitoringNotificationChannel
+type NotificationChannels map[spec.AlertSeverityLevel][]monitoringnotificationchannel.MonitoringNotificationChannel
 
 // Config for a Monitoring Alert Policy
 type Config struct {
@@ -141,7 +134,7 @@ type Config struct {
 	// the provided set of NotificationChannels.
 	//
 	// If not provided, SeverityLevelWarning is used.
-	Severity SeverityLevel
+	Severity spec.AlertSeverityLevel
 
 	// NotificationChannels to choose from for subscribing on this alert
 	NotificationChannels NotificationChannels
@@ -150,6 +143,7 @@ type Config struct {
 	ThresholdAggregation *ThresholdAggregation
 	MetricAbsence        *MetricAbsence
 	ResponseCodeMetric   *ResponseCodeMetric
+	CustomAlert          *spec.CustomAlertCondition
 }
 
 // makeDocsSubject prefixes the name with the service and environment for ease
@@ -159,10 +153,12 @@ func (c Config) makeDocsSubject() string {
 		c.Service.GetName(), c.EnvironmentID, c.Name)
 }
 
-type Output struct{}
+type Output struct {
+	AlertPolicy monitoringalertpolicy.MonitoringAlertPolicy
+}
 
 func New(scope constructs.Construct, id resourceid.ID, config *Config) (*Output, error) {
-	if err := onlyOneNonNil([]any{config.ThresholdAggregation, config.ResponseCodeMetric, config.MetricAbsence}); err != nil {
+	if err := onlyOneNonNil([]any{config.ThresholdAggregation, config.ResponseCodeMetric, config.MetricAbsence, config.CustomAlert}); err != nil {
 		return nil, err
 	}
 
@@ -175,12 +171,12 @@ func New(scope constructs.Construct, id resourceid.ID, config *Config) (*Output,
 	} else {
 		config.Description = fmt.Sprintf("%s\n\n%s",
 			config.Description,
-			DescriptionSuffix(config.Service.ID, config.EnvironmentID))
+			DescriptionSuffix(config.Service, config.EnvironmentID))
 	}
 
 	// Set default
 	if config.Severity == "" {
-		config.Severity = SeverityLevelWarning
+		config.Severity = spec.AlertSeverityLevelWarning
 	}
 
 	// Labels for the alert
@@ -215,12 +211,14 @@ func New(scope constructs.Construct, id resourceid.ID, config *Config) (*Output,
 	case config.ResponseCodeMetric != nil:
 		condition = newResponseCodeMetricCondition(config)
 
+	case config.CustomAlert != nil:
+		condition = newCustomAlertCondition(config)
 	default:
 		return nil, errors.New("no condition configuration provided")
 	}
 
 	// Build the final alert policy
-	_ = monitoringalertpolicy.NewMonitoringAlertPolicy(scope, id.TerraformID(config.ID),
+	alert := monitoringalertpolicy.NewMonitoringAlertPolicy(scope, id.TerraformID(config.ID),
 		&monitoringalertpolicy.MonitoringAlertPolicyConfig{
 			Project:     pointers.Ptr(config.ProjectID),
 			DisplayName: pointers.Ptr(config.Name),
@@ -244,7 +242,9 @@ func New(scope constructs.Construct, id resourceid.ID, config *Config) (*Output,
 			Conditions: []*monitoringalertpolicy.MonitoringAlertPolicyConditions{condition},
 		})
 
-	return &Output{}, nil
+	return &Output{
+		AlertPolicy: alert,
+	}, nil
 }
 
 func onlyOneNonNil(options []any) error {

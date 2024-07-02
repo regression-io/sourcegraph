@@ -23,6 +23,11 @@ export interface UserOnboardingConfig {
         language: string
     }
 }
+export interface SeenAuthProvider {
+    serviceType: string
+    serviceID: string
+    clientID: string
+}
 
 /**
  * Schema for temporary settings.
@@ -42,6 +47,7 @@ export interface TemporarySettingsSchema {
     'user.lastDayActive': string | null
     'user.daysActiveCount': number
     'user.themePreference': string
+    'user.seenAuthProviders': SeenAuthProvider[]
     'signup.finishedWelcomeFlow': boolean
     'homepage.userInvites.tab': number
     'batches.defaultListFilters': LegacyBatchChangesFilter[]
@@ -87,7 +93,6 @@ export interface TemporarySettingsSchema {
     'admin.hasCompletedLicenseCheck': boolean
     'simple.search.toggle': boolean
     'cody.onboarding.completed': boolean
-    'cody.onboarding.step': number
 
     /** OpenCodeGraph */
     'openCodeGraph.annotations.visible': boolean
@@ -115,6 +120,7 @@ const TEMPORARY_SETTINGS: Record<keyof TemporarySettings, null> = {
     'npsSurvey.hasPermanentlyDismissed': null,
     'user.lastDayActive': null,
     'user.daysActiveCount': null,
+    'user.seenAuthProviders': null,
     'user.themePreference': null,
     'signup.finishedWelcomeFlow': null,
     'homepage.userInvites.tab': null,
@@ -154,7 +160,6 @@ const TEMPORARY_SETTINGS: Record<keyof TemporarySettings, null> = {
     'admin.hasCompletedLicenseCheck': null,
     'simple.search.toggle': null,
     'cody.onboarding.completed': null,
-    'cody.onboarding.step': null,
     'openCodeGraph.annotations.visible': null,
 }
 

@@ -2,20 +2,23 @@ import { dirname } from 'path'
 
 import { from } from 'rxjs'
 
+import type { LineOrPositionOrRange } from '$lib/common'
 import { getGraphQLClient, infinityQuery } from '$lib/graphql'
-import { fetchSidebarFileTree } from '$lib/repo/api/tree'
+import { ROOT_PATH, fetchSidebarFileTree } from '$lib/repo/api/tree'
 import { resolveRevision } from '$lib/repo/utils'
 import { parseRepoRevision } from '$lib/shared'
 
 import type { LayoutLoad } from './$types'
-import { GitHistoryQuery, LastCommitQuery } from './layout.gql'
+import { GitHistoryQuery, LastCommitQuery, RepoPage_PreciseCodeIntel } from './layout.gql'
 
 const HISTORY_COMMITS_PER_PAGE = 20
+const REFERENCES_PER_PAGE = 20
 
-export const load: LayoutLoad = ({ parent, params }) => {
+export const load: LayoutLoad = async ({ parent, params }) => {
     const client = getGraphQLClient()
     const { repoName, revision = '' } = parseRepoRevision(params.repo)
-    const parentPath = params.path ? dirname(params.path) : ''
+    const filePath = params.path ? decodeURIComponent(params.path) : ''
+    const parentPath = filePath ? dirname(filePath) : ROOT_PATH
     const resolvedRevision = resolveRevision(parent, revision)
 
     // Prefetch the sidebar file tree for the parent path.
@@ -32,12 +35,13 @@ export const load: LayoutLoad = ({ parent, params }) => {
         .catch(() => null)
 
     return {
-        parentPath,
         fileTree,
+        filePath,
+        parentPath,
         lastCommit: client.query(LastCommitQuery, {
-            repoName: repoName,
+            repoName,
             revspec: revision,
-            filePath: params.path ?? '',
+            filePath,
         }),
         // Fetches the most recent commits for current blob, tree or repo root
         commitHistory: infinityQuery({
@@ -47,7 +51,7 @@ export const load: LayoutLoad = ({ parent, params }) => {
                 resolvedRevision.then(revspec => ({
                     repoName,
                     revspec,
-                    filePath: params.path ?? '',
+                    filePath,
                     first: HISTORY_COMMITS_PER_PAGE,
                     afterCursor: null as string | null,
                 }))
@@ -83,5 +87,63 @@ export const load: LayoutLoad = ({ parent, params }) => {
                 }
             },
         }),
+
+        // We are not extracting the selected position from the URL because that creates a dependency
+        // on the full URL, which causes this loader to be re-executed on every URL change.
+        getReferenceStore: (lineOrPosition: LineOrPositionOrRange & { line: number }) =>
+            infinityQuery({
+                client,
+                query: RepoPage_PreciseCodeIntel,
+                variables: from(
+                    resolvedRevision.then(revspec => ({
+                        repoName,
+                        revspec,
+                        filePath,
+                        first: REFERENCES_PER_PAGE,
+                        // Line and character are 1-indexed, but the API expects 0-indexed
+                        line: lineOrPosition.line - 1,
+                        character: lineOrPosition.character! - 1,
+                        afterCursor: null as string | null,
+                    }))
+                ),
+                nextVariables: previousResult => {
+                    if (previousResult?.data?.repository?.commit?.blob?.lsif?.references.pageInfo.hasNextPage) {
+                        return {
+                            afterCursor: previousResult.data.repository.commit.blob.lsif.references.pageInfo.endCursor,
+                        }
+                    }
+                    return undefined
+                },
+                combine: (previousResult, nextResult) => {
+                    if (!nextResult.data?.repository?.commit?.blob?.lsif) {
+                        return nextResult
+                    }
+
+                    const previousNodes = previousResult.data?.repository?.commit?.blob?.lsif?.references?.nodes ?? []
+                    const nextNodes = nextResult.data?.repository?.commit?.blob?.lsif?.references?.nodes ?? []
+
+                    return {
+                        ...nextResult,
+                        data: {
+                            repository: {
+                                ...nextResult.data.repository,
+                                commit: {
+                                    ...nextResult.data.repository.commit,
+                                    blob: {
+                                        ...nextResult.data.repository.commit.blob,
+                                        lsif: {
+                                            ...nextResult.data.repository.commit.blob.lsif,
+                                            references: {
+                                                ...nextResult.data.repository.commit.blob.lsif.references,
+                                                nodes: [...previousNodes, ...nextNodes],
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    }
+                },
+            }),
     }
 }

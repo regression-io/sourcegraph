@@ -39,6 +39,27 @@ fragment FeatureFlag on EvaluatedFeatureFlag {
 }
 
 fragment AuthenticatedUser on User {
-    ...Header_User
+    ...GlobalNavigation_User
     ...SearchInput_AuthenticatedUser
+}
+
+mutation EditSettings($subject: ID!, $lastID: Int, $edit: SettingsEdit!) {
+    settingsMutation(input: { subject: $subject, lastID: $lastID }) {
+        editSettings(edit: $edit) {
+            empty {
+                alwaysNil
+            }
+        }
+    }
+}
+
+query LatestSettingsQuery {
+    viewerSettings {
+        subjects {
+            id
+            latestSettings {
+                id
+            }
+        }
+    }
 }

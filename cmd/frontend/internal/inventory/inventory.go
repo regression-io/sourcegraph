@@ -9,13 +9,19 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/go-enry/go-enry/v2"
-	"github.com/go-enry/go-enry/v2/data"
+	"github.com/go-enry/go-enry/v2"      //nolint:depguard - FIXME: replace this usage of enry with languages package
+	"github.com/go-enry/go-enry/v2/data" //nolint:depguard - FIXME: replace this usage of enry with languages package
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/sourcegraph/log"
 
+	"github.com/sourcegraph/sourcegraph/internal/trace"
+	"github.com/sourcegraph/sourcegraph/lib/codeintel/languages"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
+
+// fileReadBufferSize is the size of the buffer we'll use while reading file contents
+const fileReadBufferSize = 4 * 1024
 
 // Inventory summarizes a tree's contents (e.g., which programming
 // languages are used).
@@ -39,13 +45,16 @@ type Lang struct {
 
 var newLine = []byte{'\n'}
 
-func getLang(ctx context.Context, file fs.FileInfo, buf []byte, getFileReader func(ctx context.Context, path string) (io.ReadCloser, error)) (Lang, error) {
+func getLang(ctx context.Context, file fs.FileInfo, getFileReader func(ctx context.Context, path string) (io.ReadCloser, error)) (Lang, error) {
 	if file == nil {
 		return Lang{}, nil
 	}
 	if !file.Mode().IsRegular() || enry.IsVendor(file.Name()) {
 		return Lang{}, nil
 	}
+
+	trc, ctx := trace.New(ctx, "getLang")
+	defer trc.End()
 	rc, err := getFileReader(ctx, file.Name())
 	if err != nil {
 		return Lang{}, errors.Wrap(err, "getting file reader")
@@ -59,12 +68,20 @@ func getLang(ctx context.Context, file fs.FileInfo, buf []byte, getFileReader fu
 	// filename. If not, we pass a subset of the file contents for analysis.
 	matchedLang, safe := GetLanguageByFilename(file.Name())
 
+	trc.AddEvent("GetLanguageByFilename",
+		attribute.String("FileName", file.Name()),
+		attribute.Bool("Safe", safe),
+		attribute.String("MatchedLang", matchedLang),
+	)
+
 	// No content
 	if rc == nil {
 		lang.Name = matchedLang
 		lang.TotalBytes = uint64(file.Size())
 		return lang, nil
 	}
+
+	buf := make([]byte, fileReadBufferSize)
 
 	if !safe {
 		// Detect language from content
@@ -76,17 +93,24 @@ func getLang(ctx context.Context, file fs.FileInfo, buf []byte, getFileReader fu
 		if err != nil && err != io.ErrUnexpectedEOF {
 			return lang, errors.Wrap(err, "reading initial file data")
 		}
-		matchedLang = enry.GetLanguage(file.Name(), buf[:n])
-		lang.TotalBytes += uint64(n)
-		lang.TotalLines += uint64(bytes.Count(buf[:n], newLine))
-		lang.Name = matchedLang
-		if err == io.ErrUnexpectedEOF {
-			// File is smaller than buf, we can exit early
-			if !bytes.HasSuffix(buf[:n], newLine) {
-				// Add final line
-				lang.TotalLines++
+
+		// GetLanguages can return multiple matches for ambiguous languages. If there are multiple
+		// we will take the first one.
+		languages, _ := languages.GetLanguages(file.Name(), func() ([]byte, error) { return buf[:n], nil })
+		if len(languages) > 0 {
+			matchedLang = languages[0]
+
+			lang.TotalBytes += uint64(n)
+			lang.TotalLines += uint64(bytes.Count(buf[:n], newLine))
+			lang.Name = matchedLang
+			if err == io.ErrUnexpectedEOF {
+				// File is smaller than buf, we can exit early
+				if !bytes.HasSuffix(buf[:n], newLine) {
+					// Add final line
+					lang.TotalLines++
+				}
+				return lang, nil
 			}
-			return lang, nil
 		}
 	}
 	lang.Name = matchedLang

@@ -172,7 +172,6 @@
         - ExternalServiceStore
         - ReposStore
         - IndexEnqueuer
-        - RepoUpdaterClient
         - UploadService
     - path: github.com/sourcegraph/sourcegraph/internal/codeintel/uploads/shared
       interfaces:
@@ -198,7 +197,6 @@
         - Store
     - path: github.com/sourcegraph/sourcegraph/internal/codeintel/autoindexing
       interfaces:
-        - RepoUpdaterClient
         - InferenceService
         - UploadService
 - filename: internal/codeintel/autoindexing/internal/inference/mocks_test.go
@@ -347,6 +345,10 @@
   path: github.com/sourcegraph/sourcegraph/cmd/worker/internal/telemetry
   interfaces:
     - bookmarkStore
+- filename: cmd/worker/internal/sourcegraphaccounts/mocks_test.go
+  path: github.com/sourcegraph/sourcegraph/cmd/worker/internal/sourcegraphaccounts
+  interfaces:
+    - notificationsSubscriberStore
 - filename: internal/codeintel/ranking/mocks_test.go
   sources:
     - path: github.com/sourcegraph/sourcegraph/internal/codeintel/ranking/internal/store
@@ -423,3 +425,20 @@
         - service
         - RepositoryLocker
         - RepositoryLock
+- filename: dev/build-tracker/mocks_test.go
+  path: github.com/sourcegraph/sourcegraph/dev/build-tracker
+  package: main
+  interfaces:
+    - BigQueryWriter
+- filename: cmd/cody-gateway/internal/actor/productsubscription/productsubscriptiontest/mocks.go
+  package: productsubscriptiontest
+  sources:
+    - path: github.com/sourcegraph/sourcegraph/cmd/cody-gateway/internal/actor/productsubscription
+      interfaces:
+        - EnterprisePortalClient
+- filename: cmd/enterprise-portal/internal/subscriptionsservice/mocks_test.go
+  package: subscriptionsservice
+  sources:
+    - path: github.com/sourcegraph/sourcegraph/cmd/enterprise-portal/internal/subscriptionsservice
+      interfaces:
+        - StoreV1

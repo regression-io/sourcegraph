@@ -15,7 +15,6 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/authz/providers/github"
 	"github.com/sourcegraph/sourcegraph/internal/authz/providers/gitlab"
 	"github.com/sourcegraph/sourcegraph/internal/authz/providers/perforce"
-	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/conf/conftypes"
 	"github.com/sourcegraph/sourcegraph/internal/database"
 	"github.com/sourcegraph/sourcegraph/internal/extsvc"
@@ -93,10 +92,6 @@ func ProvidersFromConfig(
 		opt.AfterID = svcs[len(svcs)-1].ID // Advance the cursor
 
 		for _, svc := range svcs {
-			if svc.CloudDefault { // Only public repos in CloudDefault services
-				continue
-			}
-
 			cfg, err := extsvc.ParseEncryptableConfig(ctx, svc.Kind, svc.Config)
 			if err != nil {
 				seriousProblems = append(seriousProblems, fmt.Sprintf("Could not parse config of external service %d: %v", svc.ID, err))
@@ -172,8 +167,8 @@ func ProvidersFromConfig(
 	return allowAccessByDefault, initResult.Providers, initResult.Problems, initResult.Warnings, initResult.InvalidConnections
 }
 
-func RefreshInterval() time.Duration {
-	interval := conf.Get().AuthzRefreshInterval
+func RefreshInterval(cfg conftypes.UnifiedQuerier) time.Duration {
+	interval := cfg.SiteConfig().AuthzRefreshInterval
 	if interval <= 0 {
 		return 5 * time.Second
 	}
@@ -185,11 +180,11 @@ func RefreshInterval() time.Duration {
 //   - There are no code host connections with authorization or enforcePermissions enabled
 //   - Not purchased with the current license
 //   - `disableAutoCodeHostSyncs` site setting is set to true
-func PermissionSyncingDisabled() bool {
+func PermissionSyncingDisabled(cfg conftypes.UnifiedQuerier) bool {
 	_, p := authz.GetProviders()
 	return len(p) == 0 ||
 		licensing.Check(licensing.FeatureACLs) != nil ||
-		conf.Get().DisableAutoCodeHostSyncs
+		cfg.SiteConfig().DisableAutoCodeHostSyncs
 }
 
 var ValidateExternalServiceConfig = database.MakeValidateExternalServiceConfigFunc(

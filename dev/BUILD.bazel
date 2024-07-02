@@ -2,7 +2,6 @@ load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 
 exports_files(srcs = [
     "eslint-report-test.sh",
-    "go-mockgen.tpl",
 ])
 
 filegroup(
@@ -18,6 +17,7 @@ write_source_files(
     name = "write_all_generated",
     additional_update_targets = [
         "//client/web/src/rbac:write_generated",
+        "//client/web-sveltekit:write_generated",
         "//cmd/cody-gateway/internal/dotcom:write_genql_yaml",
         "//cmd/frontend/internal/guardrails/dotcom:write_genql_yaml",
         "//dev/linters/staticcheck:write_generated_bazelfile",
@@ -121,5 +121,10 @@ write_source_files(
         "//internal/workerutil:generate_mocks",
         "//lib/background:generate_mocks",
         "//cmd/gitserver/internal/gitserverfs:generate_mocks",
+        "//cmd/repo-updater/internal/gitserver:generate_mocks",
+        "//dev/build-tracker:generate_mocks",
+        "//cmd/worker/internal/sourcegraphaccounts:generate_mocks",
+        "//cmd/cody-gateway/internal/actor/productsubscription/productsubscriptiontest:generate_mocks",
+        "//cmd/enterprise-portal/internal/subscriptionsservice:generate_mocks",
     ],
 )

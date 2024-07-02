@@ -1,17 +1,13 @@
 package internal
 
 import (
-	"bytes"
-	"container/list"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/sourcegraph/sourcegraph/internal/actor"
 
@@ -20,8 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/sourcegraph/log/logtest"
 
@@ -29,16 +23,12 @@ import (
 	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/git"
 	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/git/gitcli"
 	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/gitserverfs"
-	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/perforce"
 	"github.com/sourcegraph/sourcegraph/cmd/gitserver/internal/vcssyncer"
 	"github.com/sourcegraph/sourcegraph/internal/api"
-	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/database"
 	"github.com/sourcegraph/sourcegraph/internal/database/dbmocks"
 	"github.com/sourcegraph/sourcegraph/internal/database/dbtest"
-	"github.com/sourcegraph/sourcegraph/internal/gitserver"
-	"github.com/sourcegraph/sourcegraph/internal/gitserver/protocol"
-	v1 "github.com/sourcegraph/sourcegraph/internal/gitserver/v1"
+	"github.com/sourcegraph/sourcegraph/internal/gitserver/connection"
 	"github.com/sourcegraph/sourcegraph/internal/limiter"
 	"github.com/sourcegraph/sourcegraph/internal/observation"
 	"github.com/sourcegraph/sourcegraph/internal/ratelimit"
@@ -47,211 +37,6 @@ import (
 	"github.com/sourcegraph/sourcegraph/internal/wrexec"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
-
-type Test struct {
-	Name            string
-	Request         *v1.ExecRequest
-	ExpectedCode    codes.Code
-	ExpectedBody    string
-	ExpectedError   string
-	ExpectedDetails []any
-}
-
-func TestExecRequest(t *testing.T) {
-	conf.Mock(&conf.Unified{})
-	t.Cleanup(func() { conf.Mock(nil) })
-
-	tests := []Test{
-		{
-			Name: "Command",
-			Request: &v1.ExecRequest{
-				Repo: "github.com/gorilla/mux",
-				Args: [][]byte{[]byte("diff")},
-			},
-			ExpectedCode:  codes.Unknown,
-			ExpectedBody:  "teststdout",
-			ExpectedError: "teststderr",
-			ExpectedDetails: []any{&v1.ExecStatusPayload{
-				StatusCode: 42,
-				Stderr:     "teststderr",
-			}},
-		},
-		{
-			Name: "Error",
-			Request: &v1.ExecRequest{
-				Repo: "github.com/gorilla/mux",
-				Args: [][]byte{[]byte("merge-base")},
-			},
-			ExpectedCode:  codes.Unknown,
-			ExpectedError: "testerror",
-			ExpectedDetails: []any{&v1.ExecStatusPayload{
-				StatusCode: 1,
-				Stderr:     "teststderr",
-			}},
-		},
-		{
-			Name: "EmptyInput",
-			Request: &v1.ExecRequest{
-				Repo: "github.com/gorilla/mux",
-			},
-			ExpectedCode:  codes.InvalidArgument,
-			ExpectedError: "invalid command",
-		},
-		{
-			Name: "BadCommand",
-			Request: &v1.ExecRequest{
-				Repo: "github.com/gorilla/mux",
-				Args: [][]byte{[]byte("invalid-command")},
-			},
-			ExpectedCode:  codes.InvalidArgument,
-			ExpectedError: "invalid command",
-		},
-	}
-
-	getRemoteURLFunc := func(ctx context.Context, name api.RepoName) (string, error) {
-		return "https://" + string(name) + ".git", nil
-	}
-
-	db := dbmocks.NewMockDB()
-	gr := dbmocks.NewMockGitserverRepoStore()
-	db.GitserverReposFunc.SetDefaultReturn(gr)
-	fs := gitserverfs.NewMockFSFrom(gitserverfs.New(&observation.TestContext, t.TempDir()))
-	require.NoError(t, fs.Initialize())
-	s := NewServer(&ServerOpts{
-		Logger: logtest.Scoped(t),
-		FS:     fs,
-		GetBackendFunc: func(dir common.GitDir, repoName api.RepoName) git.GitBackend {
-			backend := git.NewMockGitBackend()
-			backend.ExecFunc.SetDefaultHook(func(ctx context.Context, args ...string) (io.ReadCloser, error) {
-				if !gitcli.IsAllowedGitCmd(logtest.Scoped(t), args, fs.RepoDir(repoName)) {
-					return nil, gitcli.ErrBadGitCommand
-				}
-
-				switch args[0] {
-				case "diff":
-					var stdout bytes.Buffer
-					stdout.Write([]byte("teststdout"))
-					return &errorReader{
-						ReadCloser: io.NopCloser(&stdout),
-						err: &gitcli.CommandFailedError{
-							Stderr:     []byte("teststderr"),
-							ExitStatus: 42,
-							Inner:      errors.New("teststderr"),
-						},
-					}, nil
-				case "merge-base":
-					return &errorReader{
-						ReadCloser: io.NopCloser(&bytes.Buffer{}),
-						err: &gitcli.CommandFailedError{
-							Stderr:     []byte("teststderr"),
-							ExitStatus: 1,
-							Inner:      errors.New("testerror"),
-						},
-					}, nil
-				}
-				return io.NopCloser(&bytes.Buffer{}), nil
-			})
-			return backend
-		},
-		GetRemoteURLFunc: getRemoteURLFunc,
-		GetVCSSyncer: func(ctx context.Context, name api.RepoName) (vcssyncer.VCSSyncer, error) {
-
-			getRemoteURLSource := func(ctx context.Context, name api.RepoName) (vcssyncer.RemoteURLSource, error) {
-				return vcssyncer.RemoteURLSourceFunc(func(ctx context.Context) (*vcs.URL, error) {
-					raw := "https://" + string(name) + ".git"
-					u, err := vcs.ParseURL(raw)
-					if err != nil {
-						return nil, errors.Wrapf(err, "failed to parse URL %q", raw)
-					}
-
-					return u, nil
-				}), nil
-			}
-
-			return vcssyncer.NewGitRepoSyncer(logtest.Scoped(t), wrexec.NewNoOpRecordingCommandFactory(), getRemoteURLSource), nil
-		},
-		DB:                      db,
-		RecordingCommandFactory: wrexec.NewNoOpRecordingCommandFactory(),
-		Locker:                  NewRepositoryLocker(),
-		RPSLimiter:              ratelimit.NewInstrumentedLimiter("GitserverTest", rate.NewLimiter(rate.Inf, 10)),
-	})
-
-	gs := NewGRPCServer(s)
-	fs.RepoClonedFunc.SetDefaultHook(func(repo api.RepoName) (bool, error) {
-		if repo == "github.com/gorilla/mux" || repo == "my-mux" {
-			return true, nil
-		}
-		err := s.cloneRepo(context.Background(), repo)
-		require.NoError(t, err)
-		return false, nil
-	})
-
-	vcssyncer.TestGitRepoExists = func(ctx context.Context, repoName api.RepoName) error {
-		if strings.Contains(string(repoName), "nicksnyder/go-i18n") {
-			return nil
-		}
-
-		return errors.New("not cloneable")
-	}
-	t.Cleanup(func() { vcssyncer.TestGitRepoExists = nil })
-
-	for _, test := range tests {
-		t.Run(test.Name, func(t *testing.T) {
-			ss := gitserver.NewMockGitserverService_ExecServer()
-			ss.ContextFunc.SetDefaultReturn(context.Background())
-			var receivedData []byte
-			ss.SendFunc.SetDefaultHook(func(er *v1.ExecResponse) error {
-				receivedData = append(receivedData, er.GetData()...)
-				return nil
-			})
-			err := gs.Exec(test.Request, ss)
-
-			if test.ExpectedCode == codes.OK && err != nil {
-				t.Fatal(err)
-			}
-
-			if test.ExpectedCode != codes.OK {
-				if err == nil {
-					t.Fatal("expected error to be returned")
-				}
-				s, ok := status.FromError(err)
-				require.True(t, ok)
-				require.Equal(t, test.ExpectedCode, s.Code(), "wrong error code: expected %v, got %v %v", test.ExpectedCode, s.Code(), err)
-
-				if len(test.ExpectedDetails) > 0 {
-					if diff := cmp.Diff(test.ExpectedDetails, s.Details(), cmpopts.IgnoreUnexported(v1.ExecStatusPayload{}, v1.RepoNotFoundPayload{})); diff != "" {
-						t.Fatalf("unexpected error details (-want +got):\n%s", diff)
-					}
-				}
-
-				if strings.TrimSpace(s.Message()) != test.ExpectedError {
-					t.Errorf("wrong error body: expected %q, got %q", test.ExpectedError, s.Message())
-				}
-			}
-
-			if strings.TrimSpace(string(receivedData)) != test.ExpectedBody {
-				t.Errorf("wrong body: expected %q, got %q", test.ExpectedBody, string(receivedData))
-			}
-		})
-	}
-}
-
-type errorReader struct {
-	io.ReadCloser
-
-	err error
-}
-
-func (ec *errorReader) Read(p []byte) (int, error) {
-	n, err := ec.ReadCloser.Read(p)
-	if err == nil {
-		return n, nil
-	}
-	if err == io.EOF {
-		return n, ec.err
-	}
-	return n, err
-}
 
 // makeSingleCommitRepo make create a new repo with a single commit and returns
 // the HEAD SHA
@@ -298,7 +83,7 @@ func makeTestServer(ctx context.Context, t *testing.T, repoDir, remote string, d
 	s := NewServer(&ServerOpts{
 		Logger: logger,
 		FS:     fs,
-		GetBackendFunc: func(dir common.GitDir, repoName api.RepoName) git.GitBackend {
+		GitBackendSource: func(dir common.GitDir, repoName api.RepoName) git.GitBackend {
 			return gitcli.NewBackend(logtest.Scoped(t), wrexec.NewNoOpRecordingCommandFactory(), dir, repoName)
 		},
 		GetRemoteURLFunc: getRemoteURLFunc,
@@ -326,7 +111,6 @@ func makeTestServer(ctx context.Context, t *testing.T, repoDir, remote string, d
 		Locker:                  NewRepositoryLocker(),
 		RPSLimiter:              ratelimit.NewInstrumentedLimiter("GitserverTest", rate.NewLimiter(rate.Inf, 10)),
 		RecordingCommandFactory: wrexec.NewRecordingCommandFactory(nil, 0),
-		Perforce:                perforce.NewService(ctx, obctx, logger, db, list.New()),
 	})
 
 	s.ctx = ctx
@@ -353,7 +137,7 @@ func TestCloneRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertRepoState := func(status types.CloneStatus, size int64, wantErr error) {
+	assertRepoState := func(status types.CloneStatus, size int64) {
 		t.Helper()
 		fromDB, err := db.GitserverRepos().GetByID(ctx, dbRepo.ID)
 		if err != nil {
@@ -361,15 +145,10 @@ func TestCloneRepo(t *testing.T) {
 		}
 		assert.Equal(t, status, fromDB.CloneStatus)
 		assert.Equal(t, size, fromDB.RepoSizeBytes)
-		var errString string
-		if wantErr != nil {
-			errString = wantErr.Error()
-		}
-		assert.Equal(t, errString, fromDB.LastError)
 	}
 
 	// Verify the gitserver repo entry exists.
-	assertRepoState(types.CloneStatusNotCloned, 0, nil)
+	assertRepoState(types.CloneStatusNotCloned, 0)
 
 	remoteDir := filepath.Join(reposDir, "remote")
 	s := makeTestServer(ctx, t, reposDir, remoteDir, db)
@@ -388,22 +167,12 @@ func TestCloneRepo(t *testing.T) {
 	cmd("git", "tag", "HEAD")
 
 	// Enqueue repo clone.
-	err := s.cloneRepo(ctx, repoName)
+	_, _, err := s.FetchRepository(ctx, repoName)
 	require.NoError(t, err)
 
-	// Wait until the clone is done. Please do not use this code snippet
-	// outside of a test. We only know this works since our test only starts
-	// one clone and will have nothing else attempt to lock.
-	for range 1000 {
-		_, cloning := s.locker.Status(repoName)
-		if !cloning {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	wantRepoSize, err := s.fs.DirSize(string(s.fs.RepoDir(repoName)))
 	require.NoError(t, err)
-	assertRepoState(types.CloneStatusCloned, wantRepoSize, err)
+	assertRepoState(types.CloneStatusCloned, wantRepoSize)
 
 	cmdExecDir = repoDir.Path(".")
 	gotCommit := cmd("git", "rev-parse", "HEAD")
@@ -412,11 +181,11 @@ func TestCloneRepo(t *testing.T) {
 	}
 
 	// Test blocking with a failure (already exists since we didn't specify overwrite)
-	err = s.cloneRepo(context.Background(), repoName)
+	err = s.cloneRepo(context.Background(), repoName, NewMockRepositoryLock())
 	if !errors.Is(err, os.ErrExist) {
 		t.Fatalf("expected clone repo to fail with already exists: %s", err)
 	}
-	assertRepoState(types.CloneStatusCloned, wantRepoSize, err)
+	assertRepoState(types.CloneStatusCloned, wantRepoSize)
 
 	gotCommit = cmd("git", "rev-parse", "HEAD")
 	if wantCommit != gotCommit {
@@ -465,17 +234,6 @@ func TestCloneRepoRecordsFailures(t *testing.T) {
 		wantErr      string
 	}{
 		{
-			name: "Not cloneable",
-			getVCSSyncer: func(ctx context.Context, name api.RepoName) (vcssyncer.VCSSyncer, error) {
-				m := vcssyncer.NewMockVCSSyncer()
-				m.IsCloneableFunc.SetDefaultHook(func(context.Context, api.RepoName) error {
-					return errors.New("not_cloneable")
-				})
-				return m, nil
-			},
-			wantErr: "error cloning repo: repo example.com/foo/bar not cloneable: not_cloneable",
-		},
-		{
 			name: "Failing clone",
 			getVCSSyncer: func(ctx context.Context, name api.RepoName) (vcssyncer.VCSSyncer, error) {
 				m := vcssyncer.NewMockVCSSyncer()
@@ -491,7 +249,7 @@ func TestCloneRepoRecordsFailures(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s.getVCSSyncer = tc.getVCSSyncer
-			_ = s.cloneRepo(ctx, repoName)
+			_, _, _ = s.FetchRepository(ctx, repoName)
 			assertRepoState(types.CloneStatusNotCloned, 0, tc.wantErr)
 		})
 	}
@@ -559,9 +317,8 @@ func TestHandleRepoUpdate(t *testing.T) {
 		}), nil
 	}
 
-	s.RepoUpdate(ctx, &protocol.RepoUpdateRequest{
-		Repo: repoName,
-	})
+	_, _, err := s.FetchRepository(ctx, repoName)
+	require.Error(t, err)
 
 	size, err := s.fs.DirSize(string(s.fs.RepoDir(repoName)))
 	require.NoError(t, err)
@@ -592,9 +349,8 @@ func TestHandleRepoUpdate(t *testing.T) {
 	// This will perform an initial clone
 	s.getRemoteURLFunc = oldRemoveURLFunc
 	s.getVCSSyncer = oldVCSSyncer
-	s.RepoUpdate(ctx, &protocol.RepoUpdateRequest{
-		Repo: repoName,
-	})
+	_, _, err = s.FetchRepository(ctx, repoName)
+	require.NoError(t, err)
 
 	size, err = s.fs.DirSize(string(s.fs.RepoDir(repoName)))
 	require.NoError(t, err)
@@ -622,15 +378,14 @@ func TestHandleRepoUpdate(t *testing.T) {
 	t.Cleanup(func() { doBackgroundRepoUpdateMock = nil })
 
 	// This will trigger an update since the repo is already cloned
-	s.RepoUpdate(ctx, &protocol.RepoUpdateRequest{
-		Repo: repoName,
-	})
+	_, _, err = s.FetchRepository(ctx, repoName)
+	require.Error(t, err)
 
 	want = &types.GitserverRepo{
 		RepoID:        dbRepo.ID,
 		ShardID:       "",
 		CloneStatus:   types.CloneStatusCloned,
-		LastError:     "fail",
+		LastError:     "failed to fetch example.com/foo/bar: fail",
 		RepoSizeBytes: size,
 	}
 	fromDB, err = db.GitserverRepos().GetByID(ctx, dbRepo.ID)
@@ -647,9 +402,8 @@ func TestHandleRepoUpdate(t *testing.T) {
 	doBackgroundRepoUpdateMock = nil
 
 	// This will trigger an update since the repo is already cloned
-	s.RepoUpdate(ctx, &protocol.RepoUpdateRequest{
-		Repo: repoName,
-	})
+	_, _, err = s.FetchRepository(ctx, repoName)
+	require.NoError(t, err)
 
 	// we compute the new size
 	wantSize, err := s.fs.DirSize(string(s.fs.RepoDir(repoName)))
@@ -689,7 +443,7 @@ func TestCloneRepo_EnsureValidity(t *testing.T) {
 		cmd("rm", ".git/HEAD")
 
 		s := makeTestServer(ctx, t, reposDir, remote, nil)
-		if err := s.cloneRepo(ctx, "example.com/foo/bar"); err == nil {
+		if err := s.cloneRepo(ctx, "example.com/foo/bar", NewMockRepositoryLock()); err == nil {
 			t.Fatal("expected an error, got none")
 		}
 	})
@@ -707,7 +461,7 @@ func TestCloneRepo_EnsureValidity(t *testing.T) {
 		cmd("sh", "-c", ": > .git/HEAD")
 
 		s := makeTestServer(ctx, t, reposDir, remote, nil)
-		if err := s.cloneRepo(ctx, "example.com/foo/bar"); err == nil {
+		if err := s.cloneRepo(ctx, "example.com/foo/bar", NewMockRepositoryLock()); err == nil {
 			t.Fatal("expected an error, got none")
 		}
 	})
@@ -737,7 +491,7 @@ func TestCloneRepo_EnsureValidity(t *testing.T) {
 		t.Cleanup(func() { vcssyncer.TestRepositoryPostFetchCorruptionFunc = nil })
 		// Use block so we get clone errors right here and don't have to rely on the
 		// clone queue. There's no other reason for blocking here, just convenience/simplicity.
-		err := s.cloneRepo(ctx, repoName)
+		err := s.cloneRepo(ctx, repoName, NewMockRepositoryLock())
 		require.NoError(t, err)
 
 		dst := s.fs.RepoDir(repoName)
@@ -766,7 +520,7 @@ func TestCloneRepo_EnsureValidity(t *testing.T) {
 			cmd("sh", "-c", fmt.Sprintf(": > %s/HEAD", tmpDir))
 		}
 		t.Cleanup(func() { vcssyncer.TestRepositoryPostFetchCorruptionFunc = nil })
-		if err := s.cloneRepo(ctx, "example.com/foo/bar"); err != nil {
+		if err := s.cloneRepo(ctx, "example.com/foo/bar", NewMockRepositoryLock()); err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
 
@@ -878,7 +632,7 @@ func TestSyncRepoState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = s.cloneRepo(ctx, repoName)
+	err = s.cloneRepo(ctx, repoName, NewMockRepositoryLock())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -889,7 +643,7 @@ func TestSyncRepoState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = syncRepoState(ctx, logger, db, s.locker, hostname, s.fs, gitserver.GitserverAddresses{Addresses: []string{hostname}}, 10, 10, true)
+	err = syncRepoState(ctx, logger, db, s.locker, hostname, s.fs, connection.GitserverAddresses{Addresses: []string{hostname}}, 10, 10, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,7 +668,7 @@ func TestSyncRepoState(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = syncRepoState(ctx, logger, db, s.locker, hostname, s.fs, gitserver.GitserverAddresses{Addresses: []string{hostname}}, 10, 10, true)
+		err = syncRepoState(ctx, logger, db, s.locker, hostname, s.fs, connection.GitserverAddresses{Addresses: []string{hostname}}, 10, 10, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1121,7 +875,7 @@ func TestServer_IsRepoCloneable_InternalActor(t *testing.T) {
 
 	s := NewServer(&ServerOpts{
 		Logger: logtest.Scoped(t),
-		GetBackendFunc: func(dir common.GitDir, repoName api.RepoName) git.GitBackend {
+		GitBackendSource: func(dir common.GitDir, repoName api.RepoName) git.GitBackend {
 			return git.NewMockGitBackend()
 		},
 		GetRemoteURLFunc: func(_ context.Context, _ api.RepoName) (string, error) {
@@ -1161,7 +915,7 @@ type mockVCSSyncer struct {
 	mockTypeFunc    func() string
 	mockIsCloneable func(ctx context.Context, repoName api.RepoName) error
 	mockClone       func(ctx context.Context, repo api.RepoName, targetDir common.GitDir, tmpPath string, progressWriter io.Writer) error
-	mockFetch       func(ctx context.Context, repoName api.RepoName, dir common.GitDir, revspec string) ([]byte, error)
+	mockFetch       func(ctx context.Context, repoName api.RepoName, dir common.GitDir, progressWriter io.Writer) error
 }
 
 func (m *mockVCSSyncer) Type() string {
@@ -1188,12 +942,12 @@ func (m *mockVCSSyncer) Clone(ctx context.Context, repo api.RepoName, targetDir 
 	return errors.New("no mock for Clone() is set")
 }
 
-func (m *mockVCSSyncer) Fetch(ctx context.Context, repoName api.RepoName, dir common.GitDir, revspec string) ([]byte, error) {
+func (m *mockVCSSyncer) Fetch(ctx context.Context, repoName api.RepoName, dir common.GitDir, progressWriter io.Writer) error {
 	if m.mockFetch != nil {
-		return m.mockFetch(ctx, repoName, dir, revspec)
+		return m.mockFetch(ctx, repoName, dir, progressWriter)
 	}
 
-	return nil, errors.New("no mock for Fetch() is set")
+	return errors.New("no mock for Fetch() is set")
 }
 
 var _ vcssyncer.VCSSyncer = &mockVCSSyncer{}

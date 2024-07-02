@@ -1,10 +1,9 @@
-use crate::range::Range;
-use anyhow::{Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use bitvec::prelude::*;
 use protobuf::Enum;
 use scip::types::{symbol_information, Descriptor, Document, Occurrence, SymbolInformation};
 
-use crate::languages::TagConfiguration;
+use crate::{languages::TagConfiguration, range::Range};
 
 #[derive(Debug)]
 pub struct Scope {
@@ -175,7 +174,7 @@ pub fn parse_tree<'a>(
         for capture in m.captures {
             let capture_name = capture_names
                 .get(capture.index as usize)
-                .expect("capture indexes should always work");
+                .context("capture indexes should always work")?;
 
             if capture_name.starts_with("descriptor") {
                 descriptors.push((
@@ -189,12 +188,12 @@ pub fn parse_tree<'a>(
             }
 
             if capture_name.starts_with("scope") {
-                assert!(scope.is_none(), "declare only one scope per match");
+                ensure!(scope.is_none(), "declare only one scope per match");
                 scope = Some(capture);
             }
 
             if capture_name.starts_with("enclosing") {
-                assert!(enclosing_node.is_none(), "declare only one scope per match");
+                ensure!(enclosing_node.is_none(), "declare only one scope per match");
                 enclosing_node = Some(capture.node);
             }
 
@@ -203,7 +202,7 @@ pub fn parse_tree<'a>(
             }
 
             if capture_name.starts_with("kind") {
-                assert!(kind.is_none(), "declare only one kind per match");
+                ensure!(kind.is_none(), "declare only one kind per match");
                 kind = Some(capture_name)
             }
         }
@@ -278,7 +277,7 @@ pub fn parse_tree<'a>(
             }
             None => {
                 if local_range.is_none() {
-                    panic!("there must always be at least one descriptor (except for @local)");
+                    bail!("there must always be at least one descriptor (except for @local)");
                 }
             }
         }
@@ -319,11 +318,11 @@ pub fn parse_tree<'a>(
 
 #[cfg(test)]
 pub mod test {
-    use crate::snapshot::{self, dump_document_with_config, SnapshotOptions};
     use scip::types::Document;
     use tree_sitter_all_languages::ParserId;
 
     use super::*;
+    use crate::snapshot::{self, dump_document_with_config, SnapshotOptions};
 
     pub fn parse_file_for_lang(config: &TagConfiguration, source_code: &str) -> Document {
         let mut parser = config.get_parser();

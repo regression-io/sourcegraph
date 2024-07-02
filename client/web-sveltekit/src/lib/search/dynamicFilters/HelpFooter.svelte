@@ -1,16 +1,15 @@
-<script>
-    import LinkShareIcon from '$lib/icons/LinkShare.svelte'
-    import OpenBookIcon from '$lib/icons/OpenBook.svelte'
+<script lang="ts">
+    import Icon from '$lib/Icon.svelte'
 </script>
 
 <footer>
     <a href="/help/code_search/reference/queries" class="link">
-        <div class="icon"><OpenBookIcon aria-hidden /></div>
+        <div class="icon"><Icon icon={ILucideBookOpen} aria-hidden /></div>
         <div>
             <h4>Need more advanced filters?</h4>
             <small>Explore the query syntax docs</small>
         </div>
-        <div class="icon"><LinkShareIcon aria-hidden /></div>
+        <div class="icon"><Icon icon={ILucideExternalLink} aria-hidden inline /></div>
     </a>
 </footer>
 
@@ -26,6 +25,10 @@
         }
 
         &:hover {
+            h4 {
+                color: var(--primary);
+            }
+
             &::before {
                 background: linear-gradient(91deg, var(--logo-blue) 3.11%, #c66fff 44.21%, #ff8578 83.64%);
             }
@@ -40,6 +43,11 @@
             }
 
             --icon-color: var(--primary);
+        }
+
+        h4 {
+            margin-bottom: 0.25rem;
+            color: var(--text-muted);
         }
 
         a {

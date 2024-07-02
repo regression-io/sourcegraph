@@ -9,6 +9,7 @@ rust_binary(
     proc_macro_deps = all_crate_deps(
         proc_macro = True,
     ),
+    tags = [TAG_PLATFORM_GRAPH],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(
         normal = True,
@@ -27,9 +28,7 @@ WORKSPACE_DEPS = [
 rust_library(
     name = "scip_syntax_lib",
     srcs = glob(
-        [
-            "src/*.rs",
-        ],
+        ["src/**/*.rs"],
         allow_empty = False,
         exclude = ["src/main.rs"],
     ),
@@ -40,6 +39,7 @@ rust_library(
     proc_macro_deps = all_crate_deps(
         proc_macro = True,
     ),
+    tags = [TAG_PLATFORM_GRAPH],
     visibility = [":__subpackages__"],
     deps = all_crate_deps(normal = True) + WORKSPACE_DEPS,
 )
@@ -47,10 +47,15 @@ rust_library(
 rust_test(
     name = "unit_test",
     size = "small",
-    srcs = glob(["src/*.rs"]),
+    srcs = glob(
+        ["src/**/*.rs"],
+        allow_empty = False,
+        exclude = ["src/main.rs"],
+    ),
     proc_macro_deps = all_crate_deps(
         proc_macro = True,
     ),
+    tags = [TAG_PLATFORM_GRAPH],
     deps = all_crate_deps(normal = True) + WORKSPACE_DEPS,
 )
 
@@ -65,7 +70,11 @@ rust_test(
 rust_test(
     name = "integration_test",
     size = "small",
-    srcs = glob(["tests/*.rs"]),
+    srcs = glob(
+        ["src/**/*.rs"],
+        allow_empty = False,
+        exclude = ["src/main.rs"],
+    ),
     compile_data = glob(
         [
             "testdata/**",
@@ -88,8 +97,10 @@ rust_test(
         "JAVA_SCIP_INDEX": "$(rootpath :java_groundtruth_scip)",
         "SCIP_SYNTAX_PATH": "$(rootpath :scip-syntax)",
     },
+    tags = [TAG_PLATFORM_GRAPH],
     deps = all_crate_deps(
         normal = True,
+        normal_dev = True,
     ) + [
         ":scip-syntax",
         ":scip_syntax_lib",

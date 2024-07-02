@@ -21,6 +21,9 @@ import type {
     FeatureFlagFields,
     FeatureFlagsResult,
     FeatureFlagsVariables,
+    GitserverFields,
+    GitserversResult,
+    GitserversVariables,
     OrganizationsConnectionFields,
     OrganizationsResult,
     OrganizationsVariables,
@@ -54,9 +57,6 @@ import type {
     WebhookPageHeaderVariables,
     WebhooksListResult,
     WebhooksListVariables,
-    GitserversVariables,
-    GitserversResult,
-    GitserverFields,
 } from '../graphql-operations'
 import { accessTokenFragment } from '../settings/tokens/AccessTokenNode'
 
@@ -149,7 +149,6 @@ const siteAdminRepositoryFieldsFragment = gql`
         externalRepository {
             ...ExternalRepositoryFields
         }
-        embeddingExists
     }
 `
 export const REPOSITORIES_QUERY = gql`
@@ -161,8 +160,6 @@ export const REPOSITORIES_QUERY = gql`
         $query: String
         $indexed: Boolean
         $notIndexed: Boolean
-        $embedded: Boolean
-        $notEmbedded: Boolean
         $failedFetch: Boolean
         $corrupted: Boolean
         $cloneStatus: CloneStatus
@@ -178,8 +175,6 @@ export const REPOSITORIES_QUERY = gql`
             query: $query
             indexed: $indexed
             notIndexed: $notIndexed
-            embedded: $embedded
-            notEmbedded: $notEmbedded
             failedFetch: $failedFetch
             corrupted: $corrupted
             cloneStatus: $cloneStatus
@@ -344,7 +339,6 @@ export const RECLONE_REPOSITORY_MUTATION = gql`
 
 /**
  * Fetches the site and its configuration.
- *
  * @returns Observable that emits the site
  */
 export function fetchSite(): Observable<SiteResult['site']> {
@@ -480,7 +474,6 @@ export function fetchAllConfigAndSettings(): Observable<AllConfig> {
 
 /**
  * Updates the site's configuration.
- *
  * @returns An observable indicating whether or not a service restart is
  * required for the update to be applied.
  */
@@ -655,13 +648,18 @@ export const SET_AUTO_UPGRADE = gql`
 `
 
 /**
- * Fetches all out-of-band migrations.
+ * Fetches out-of-band migrations.
+ *
+ * If excludeDeprecatedBeforeFirstVersion is true, exclude migrations which have not been deprecated,
+ * or were not deprecated before the Sourcegraph init version.
  */
-export function fetchAllOutOfBandMigrations(): Observable<OutOfBandMigrationFields[]> {
+export function fetchOutOfBandMigrations(
+    excludeDeprecatedBeforeFirstVersion?: boolean
+): Observable<OutOfBandMigrationFields[]> {
     return requestGraphQL<OutOfBandMigrationsResult, OutOfBandMigrationsVariables>(
         gql`
-            query OutOfBandMigrations {
-                outOfBandMigrations {
+            query OutOfBandMigrations($excludeDeprecatedBeforeFirstVersion: Boolean = false) {
+                outOfBandMigrations(ExcludeDeprecatedBeforeFirstVersion: $excludeDeprecatedBeforeFirstVersion) {
                     ...OutOfBandMigrationFields
                 }
             }
@@ -683,7 +681,8 @@ export function fetchAllOutOfBandMigrations(): Observable<OutOfBandMigrationFiel
                     created
                 }
             }
-        `
+        `,
+        { excludeDeprecatedBeforeFirstVersion }
     ).pipe(
         map(dataOrThrowErrors),
         map(data => data.outOfBandMigrations)
@@ -747,7 +746,6 @@ export const STATUS_AND_REPO_STATS = gql`
             failedFetch
             corrupted
             indexed
-            embedded
         }
         statusMessages {
             ... on GitUpdatesDisabled {

@@ -9,6 +9,7 @@ go_library(
         "tracing.go",
     ],
     importpath = "github.com/sourcegraph/sourcegraph/lib/managedservicesplatform/runtime/internal/opentelemetry",
+    tags = [TAG_INFRA_CORESERVICES],
     visibility = ["//lib/managedservicesplatform/runtime:__subpackages__"],
     deps = [
         "//lib/errors",
@@ -37,5 +38,6 @@ go_library(
         "@io_opentelemetry_go_otel_sdk_metric//metricdata",
         "@io_opentelemetry_go_otel_trace//:trace",
         "@io_opentelemetry_go_otel_trace//embedded",
+        "@org_golang_google_api//option",
     ],
 )

@@ -10,7 +10,6 @@ import (
 	"github.com/grafana/regexp"
 	"github.com/sourcegraph/zoekt"
 	zoektquery "github.com/sourcegraph/zoekt/query"
-	"github.com/sourcegraph/zoekt/stream"
 
 	"github.com/sourcegraph/sourcegraph/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/internal/gqlutil"
@@ -138,7 +137,7 @@ func (r *repositoryTextSearchIndexResolver) Refs(ctx context.Context) ([]*reposi
 	if defaultBranchRef == nil {
 		return []*repositoryTextSearchIndexedRef{}, nil
 	}
-	refNames := []string{defaultBranchRef.name}
+	refNames := []string{defaultBranchRef.Name()}
 
 	refs := make([]*repositoryTextSearchIndexedRef, len(refNames))
 	for i, refName := range refNames {
@@ -256,7 +255,7 @@ func (r *skippedIndexedResolver) Count(ctx context.Context) (BigInt, error) {
 			// ask for ChunkMatches from Sourcegraph.
 			ChunkMatches: true,
 		},
-		stream.SenderFunc(func(sr *zoekt.SearchResult) {
+		zoekt.SenderFunc(func(sr *zoekt.SearchResult) {
 			stats.Add(sr.Stats)
 		}),
 	); err != nil {

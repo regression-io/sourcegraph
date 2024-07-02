@@ -7,14 +7,12 @@
 </script>
 
 <script lang="ts">
-    import { mdiChevronDown, mdiChevronUp } from '@mdi/js'
-
+    import CodeExcerpt from '$lib/CodeExcerpt.svelte'
     import { pluralize, SourcegraphURL } from '$lib/common'
     import Icon from '$lib/Icon.svelte'
     import { observeIntersection } from '$lib/intersection-observer'
     import RepoStars from '$lib/repo/RepoStars.svelte'
     import { fetchFileRangeMatches } from '$lib/search/api/highlighting'
-    import CodeExcerpt from '$lib/search/CodeExcerpt.svelte'
     import { rankContentMatch } from '$lib/search/results'
     import { getFileMatchUrl, type ContentMatch, rankByLine, rankPassthrough } from '$lib/shared'
     import { settings } from '$lib/stores'
@@ -122,7 +120,7 @@
                 }}
                 class:expanded
             >
-                <Icon svgPath={expanded ? mdiChevronUp : mdiChevronDown} inline aria-hidden="true" />
+                <Icon icon={expanded ? ILucideChevronUp : ILucideChevronDown} inline aria-hidden="true" />
                 <span>{expandButtonText}</span>
             </button>
         {/if}
@@ -145,19 +143,21 @@
         }
 
         &:hover {
-            background-color: var(--subtle-bg-2);
+            background-color: var(--color-bg-2);
+            color: var(--text-title);
         }
     }
 
     .code {
         border-bottom: 1px solid var(--border-color);
+        background-color: var(--code-bg);
 
         &:last-child {
             border-bottom: none;
         }
 
         &:hover {
-            background-color: var(--subtle-bg-2);
+            background-color: var(--color-bg-2);
         }
 
         a {

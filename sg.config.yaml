@@ -1,6 +1,7 @@
 # Documentation for how to override sg configuration for local development:
 # https://github.com/sourcegraph/sourcegraph/blob/main/doc/dev/background-information/sg/index.md#configuration
 env:
+  GITSERVER_MEMORY_OBSERVATION_ENABLED: 'true'
   PGPORT: 5432
   PGHOST: localhost
   PGUSER: sourcegraph
@@ -129,7 +130,14 @@ env:
   GRPC_INTERNAL_ERROR_LOGGING_LOG_PROTOBUF_MESSAGES_JSON_TRUNCATION_SIZE_BYTES: '1KB'
   GRPC_INTERNAL_ERROR_LOGGING_LOG_PROTOBUF_MESSAGES_HANDLING_MAX_MESSAGE_SIZE_BYTES: '100MB'
 
-  TELEMETRY_GATEWAY_EXPORTER_EXPORT_ADDR: 'http://127.0.0.1:6080'
+  # Telemetry V2 export configuration. By default, this points to a test
+  # instance (go/msp-ops/telemetry-gateway#dev). Set the following:
+  #
+  #   TELEMETRY_GATEWAY_EXPORTER_EXPORT_ADDR: 'http://127.0.0.1:6080'
+  #
+  # in 'sg.config.overwrite.yaml' to point to a locally running Telemetry
+  # Gateway instead (via 'sg run telemetry-gateway')
+  TELEMETRY_GATEWAY_EXPORTER_EXPORT_ADDR: "https://telemetry-gateway.sgdev.org:443"
   SRC_TELEMETRY_EVENTS_EXPORT_ALL: 'true'
 
   # By default, allow temporary edits to external services.
@@ -266,18 +274,6 @@ commands:
       - cmd/embeddings
       - internal/embeddings
 
-  qdrant:
-    cmd: |
-      docker run -p 6333:6333 -p 6334:6334 \
-        -v $HOME/.sourcegraph-dev/data/qdrant_data:/data \
-        -e QDRANT__SERVICE__GRPC_PORT="6334" \
-        -e QDRANT__LOG_LEVEL=INFO \
-        -e QDRANT__STORAGE__STORAGE_PATH=/data \
-        -e QDRANT__STORAGE__SNAPSHOTS_PATH=/data \
-        -e QDRANT_INIT_FILE_PATH=/data/.qdrant-initialized \
-        --entrypoint /usr/local/bin/qdrant \
-        sourcegraph/qdrant:insiders
-
   worker:
     cmd: |
       export SOURCEGRAPH_LICENSE_GENERATION_KEY=$(cat ../dev-private/enterprise/dev/test-license-generation-key.pem)
@@ -304,15 +300,35 @@ commands:
       go build -gcflags="$GCFLAGS" -o .bin/cody-gateway github.com/sourcegraph/sourcegraph/cmd/cody-gateway
     checkBinary: .bin/cody-gateway
     env:
-      CODY_GATEWAY_ANTHROPIC_ACCESS_TOKEN: foobar
-      # Set in override if you want to test local Cody Gateway: https://sourcegraph.com/docs/dev/how-to/cody_gateway
+      SRC_LOG_LEVEL: info
+      # Enables metrics in dev via debugserver
+      SRC_PROF_HTTP: '127.0.0.1:6098'
+      # Set in 'sg.config.overwrite.yaml' if you want to test local Cody Gateway:
+      # https://docs-legacy.sourcegraph.com/dev/how-to/cody_gateway
       CODY_GATEWAY_DOTCOM_ACCESS_TOKEN: ''
       CODY_GATEWAY_DOTCOM_API_URL: https://sourcegraph.test:3443/.api/graphql
       CODY_GATEWAY_ALLOW_ANONYMOUS: true
       CODY_GATEWAY_DIAGNOSTICS_SECRET: sekret
-      SRC_LOG_LEVEL: info
-      # Enables metrics in dev via debugserver
-      SRC_PROF_HTTP: '127.0.0.1:6098'
+      # Set in 'sg.config.overwrite.yaml' if you want to test upstream
+      # integrations from local Cody Gateway:
+      # Entitle: https://app.entitle.io/request?data=eyJkdXJhdGlvbiI6IjIxNjAwIiwianVzdGlmaWNhdGlvbiI6IldSSVRFIEpVU1RJRklDQVRJT04gSEVSRSIsInJvbGVJZHMiOlt7ImlkIjoiYjhmYTk2NzgtNDExZC00ZmU1LWE2NDYtMzY4Y2YzYzUwYjJlIiwidGhyb3VnaCI6ImI4ZmE5Njc4LTQxMWQtNGZlNS1hNjQ2LTM2OGNmM2M1MGIyZSIsInR5cGUiOiJyb2xlIn1dfQ%3D%3D
+      # GSM: https://console.cloud.google.com/security/secret-manager?project=cody-gateway-dev
+      CODY_GATEWAY_ANTHROPIC_ACCESS_TOKEN: sekret
+      CODY_GATEWAY_OPENAI_ACCESS_TOKEN: sekret
+      CODY_GATEWAY_FIREWORKS_ACCESS_TOKEN: sekret
+      CODY_GATEWAY_SOURCEGRAPH_EMBEDDINGS_API_TOKEN: sekret
+      CODY_GATEWAY_GOOGLE_ACCESS_TOKEN: sekret
+      # Connect to services that require SAMS M2M http://go/sams-m2m
+      SAMS_URL: https://accounts.sgdev.org
+      # Connect to Enterprise Portal running locally
+      CODY_GATEWAY_ENTERPRISE_PORTAL_URL: http://localhost:6081
+    externalSecrets:
+      SAMS_CLIENT_ID:
+        project: sourcegraph-local-dev
+        name: SG_LOCAL_DEV_SAMS_CLIENT_ID
+      SAMS_CLIENT_SECRET:
+        project: sourcegraph-local-dev
+        name: SG_LOCAL_DEV_SAMS_CLIENT_SECRET
     watch:
       - lib
       - internal
@@ -387,6 +403,46 @@ commands:
       - cmd/msp-example
       - lib/managedservicesplatform
 
+  enterprise-portal:
+    cmd: |
+      export PGDSN="postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/{{ .Database }}?sslmode=$PGSSLMODE"
+      # Connect to local development database, with the assumption that it will
+      # have dotcom database tables.
+      export DOTCOM_PGDSN_OVERRIDE="postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE?sslmode=$PGSSLMODE"
+      .bin/enterprise-portal
+    install: |
+      if [ -n "$DELVE" ]; then
+        export GCFLAGS='all=-N -l'
+      fi
+      go build -gcflags="$GCFLAGS" -o .bin/enterprise-portal github.com/sourcegraph/sourcegraph/cmd/enterprise-portal
+      # Ensure the "msp_iam" database exists (PostgreSQL has no "IF NOT EXISTS" option).
+      createdb -h $PGHOST -p $PGPORT -U $PGUSER msp_iam || true
+      # HACK: Forcibly handle a migration that GORM doesn't seem to handle right
+      psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE \
+        -c 'ALTER TABLE enterprise_portal_subscriptions ALTER COLUMN id TYPE uuid USING id::uuid;' || true
+    checkBinary: .bin/enterprise-portal
+    env:
+      PORT: '6081'
+      DIAGNOSTICS_SECRET: sekret
+      SRC_LOG_LEVEL: debug
+      GRPC_WEB_UI_ENABLED: 'true'
+      # Connects to local database, so include all licenses from local DB
+      DOTCOM_INCLUDE_PRODUCTION_LICENSES: 'true'
+      # Used for authentication
+      SAMS_URL: https://accounts.sgdev.org
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+    externalSecrets:
+      ENTERPRISE_PORTAL_SAMS_CLIENT_ID:
+        project: sourcegraph-local-dev
+        name: SG_LOCAL_DEV_SAMS_CLIENT_ID
+      ENTERPRISE_PORTAL_SAMS_CLIENT_SECRET:
+        project: sourcegraph-local-dev
+        name: SG_LOCAL_DEV_SAMS_CLIENT_SECRET
+    watch:
+      - lib
+      - cmd/enterprise-portal
+
   searcher:
     cmd: .bin/searcher
     install: |
@@ -434,15 +490,6 @@ commands:
     env:
       WEB_BUILDER_SERVE_INDEX: true
       SOURCEGRAPH_API_URL: https://sourcegraph.sourcegraph.com
-
-  web-standalone-http-prod:
-    description: Standalone web frontend (production) with API proxy to a configurable URL
-    cmd: pnpm --filter @sourcegraph/web serve:prod
-    install: pnpm --filter @sourcegraph/web run build
-    env:
-      NODE_ENV: production
-      WEB_BUILDER_SERVE_INDEX: true
-      SOURCEGRAPH_API_URL: https://k8s.sgdev.org
 
   web-integration-build:
     description: Build development web application for integration tests
@@ -515,11 +562,14 @@ commands:
         -listen "127.0.0.1:$ZOEKT_LISTEN_PORT" \
         -cpu_fraction 0.25
     install: |
+      if [ -n "$DELVE" ]; then
+        export GCFLAGS='all=-N -l'
+      fi
       mkdir -p .bin
       export GOBIN="${PWD}/.bin"
-      go install github.com/sourcegraph/zoekt/cmd/zoekt-archive-index
-      go install github.com/sourcegraph/zoekt/cmd/zoekt-git-index
-      go install github.com/sourcegraph/zoekt/cmd/zoekt-sourcegraph-indexserver
+      go install -gcflags="$GCFLAGS" github.com/sourcegraph/zoekt/cmd/zoekt-archive-index
+      go install -gcflags="$GCFLAGS" github.com/sourcegraph/zoekt/cmd/zoekt-git-index
+      go install -gcflags="$GCFLAGS" github.com/sourcegraph/zoekt/cmd/zoekt-sourcegraph-indexserver
     checkBinary: .bin/zoekt-sourcegraph-indexserver
     env: &zoektenv
       CTAGS_COMMAND: dev/universal-ctags-dev
@@ -544,8 +594,11 @@ commands:
 
   zoekt-web-template: &zoekt_webserver_template
     install: |
+      if [ -n "$DELVE" ]; then
+        export GCFLAGS='all=-N -l'
+      fi
       mkdir -p .bin
-      env GOBIN="${PWD}/.bin" go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver
+      env GOBIN="${PWD}/.bin" go install -gcflags="$GCFLAGS" github.com/sourcegraph/zoekt/cmd/zoekt-webserver
     checkBinary: .bin/zoekt-webserver
     env:
       JAEGER_DISABLED: true
@@ -936,22 +989,6 @@ commands:
     cmd: echo "monitoring-generator is deprecated, please run 'sg generate go' or 'bazel run //dev:write_all_generated' instead"
     env:
 
-  loki:
-    cmd: |
-      echo "Loki: serving on http://localhost:3100"
-      echo "Loki: note that logs are piped to ${LOKI_LOG_FILE}"
-      docker run --rm --name=loki \
-        -p 3100:3100 -v $LOKI_DISK:/loki \
-        index.docker.io/grafana/loki:$LOKI_VERSION >"${LOKI_LOG_FILE}" 2>&1
-    install: |
-      mkdir -p "${LOKI_DISK}"
-      mkdir -p "$(dirname ${LOKI_LOG_FILE})"
-      docker pull index.docker.io/grafana/loki:$LOKI_VERSION
-    env:
-      LOKI_DISK: $HOME/.sourcegraph-dev/data/loki
-      LOKI_VERSION: '2.3.0'
-      LOKI_LOG_FILE: $HOME/.sourcegraph-dev/logs/loki/loki.log
-
   otel-collector:
     install: |
       bazel build //docker-images/opentelemetry-collector:image_tarball
@@ -997,6 +1034,34 @@ commands:
     cmd: pnpm --filter @sourcegraph/browser dev
     install: pnpm install
 
+  sourcegraph:
+    description: Single-program distribution (dev only)
+    cmd: |
+      export SOURCEGRAPH_LICENSE_GENERATION_KEY=$(cat ../dev-private/enterprise/dev/test-license-generation-key.pem)
+      .bin/sourcegraph
+    install: |
+      if [ -n "$DELVE" ]; then
+        export GCFLAGS='all=-N -l'
+      fi
+      go build -buildvcs=false -gcflags="$GCFLAGS" -o .bin/sourcegraph github.com/sourcegraph/sourcegraph/cmd/sourcegraph
+    checkBinary: .bin/sourcegraph
+    env:
+      CONFIGURATION_MODE: server
+      SITE_CONFIG_FILE: '../dev-private/enterprise/dev/site-config.json'
+      SITE_CONFIG_ESCAPE_HATCH_PATH: '$HOME/.sourcegraph/site-config.json'
+      EXTSVC_CONFIG_FILE: ../dev-private/enterprise/dev/external-services-config.json
+      WEB_BUILDER_DEV_SERVER: 1
+      INDEXED_SEARCH_SERVERS:
+      GITSERVER_ADDR: 127.0.0.1:3178
+      GITSERVER_EXTERNAL_ADDR: 127.0.0.1:3178
+      SRC_GIT_SERVERS: 127.0.0.1:3178
+      SRC_DISABLE_OOBMIGRATION_VALIDATION: 1
+    watch:
+      - cmd
+      - internal
+      - lib
+      - schema
+
 bazelCommands:
   blobstore:
     target: //cmd/blobstore
@@ -1005,15 +1070,35 @@ bazelCommands:
   cody-gateway:
     target: //cmd/cody-gateway
     env:
-      CODY_GATEWAY_ANTHROPIC_ACCESS_TOKEN: foobar
-      # Set in override if you want to test local Cody Gateway: https://sourcegraph.com/docs/dev/how-to/cody_gateway
+      SRC_LOG_LEVEL: info
+      # Enables metrics in dev via debugserver
+      SRC_PROF_HTTP: '127.0.0.1:6098'
+      # Set in override if you want to test local Cody Gateway: https://docs-legacy.sourcegraph.com/dev/how-to/cody_gateway
       CODY_GATEWAY_DOTCOM_ACCESS_TOKEN: ''
       CODY_GATEWAY_DOTCOM_API_URL: https://sourcegraph.test:3443/.api/graphql
       CODY_GATEWAY_ALLOW_ANONYMOUS: true
       CODY_GATEWAY_DIAGNOSTICS_SECRET: sekret
-      SRC_LOG_LEVEL: info
-      # Enables metrics in dev via debugserver
-      SRC_PROF_HTTP: '127.0.0.1:6098'
+      # Set in 'sg.config.overwrite.yaml' if you want to test upstream
+      # integrations from local Cody Gateway:
+      # Entitle: https://app.entitle.io/request?data=eyJkdXJhdGlvbiI6IjIxNjAwIiwianVzdGlmaWNhdGlvbiI6IldSSVRFIEpVU1RJRklDQVRJT04gSEVSRSIsInJvbGVJZHMiOlt7ImlkIjoiYjhmYTk2NzgtNDExZC00ZmU1LWE2NDYtMzY4Y2YzYzUwYjJlIiwidGhyb3VnaCI6ImI4ZmE5Njc4LTQxMWQtNGZlNS1hNjQ2LTM2OGNmM2M1MGIyZSIsInR5cGUiOiJyb2xlIn1dfQ%3D%3D
+      # GSM: https://console.cloud.google.com/security/secret-manager?project=cody-gateway-dev
+      CODY_GATEWAY_ANTHROPIC_ACCESS_TOKEN: sekret
+      CODY_GATEWAY_OPENAI_ACCESS_TOKEN: sekret
+      CODY_GATEWAY_FIREWORKS_ACCESS_TOKEN: sekret
+      CODY_GATEWAY_SOURCEGRAPH_EMBEDDINGS_API_TOKEN: sekret
+      CODY_GATEWAY_GOOGLE_ACCESS_TOKEN: sekret
+      # Connect to services that require SAMS M2M http://go/sams-m2m
+      SAMS_URL: https://accounts.sgdev.org
+      # Connect to Enterprise Portal running locally
+      CODY_GATEWAY_ENTERPRISE_PORTAL_URL: http://localhost:6081
+    externalSecrets:
+      SAMS_CLIENT_ID:
+        project: sourcegraph-local-dev
+        name: SG_LOCAL_DEV_SAMS_CLIENT_ID
+      SAMS_CLIENT_SECRET:
+        project: sourcegraph-local-dev
+        name: SG_LOCAL_DEV_SAMS_CLIENT_SECRET
+
   docsite:
     runTarget: //doc:serve
   searcher:
@@ -1065,6 +1150,7 @@ bazelCommands:
     target: //cmd/gitserver
     env: &gitserverenv
       HOSTNAME: 127.0.0.1:3178
+      GITSERVER_MEMORY_OBSERVATION_ENABLED: 'true'
   # This is only here to stay backwards-compatible with people's custom
   # `sg.config.overwrite.yaml` files
   gitserver:
@@ -1158,17 +1244,6 @@ dockerCommands:
       # docker containers must access things via docker host on non-linux platforms
       CACHE: false
 
-  loki:
-    logfile: $HOME/.sourcegraph-dev/logs/loki/loki.log
-    docker:
-      image: index.docker.io/grafana/loki:2.3.0
-      pull: true
-      ports:
-        - 3100
-      volumes:
-        - from: $HOME/.sourcegraph-dev/data/loki
-          to: /loki
-
   otel-collector:
     target: //docker-images/opentelemetry-collector:image_tarball
     description: OpenTelemetry collector
@@ -1254,6 +1329,8 @@ dockerCommands:
       CONFIG_DIR: docker-images/prometheus/config
       PROM_TARGETS: dev/prometheus/all/prometheus_targets.yml
       SRC_FRONTEND_INTERNAL: host.docker.internal:3090
+      SRC_LOG_LEVEL: info
+      SRC_DEVELOPMENT: true
       DISABLE_SOURCEGRAPH_CONFIG: false
       DISABLE_ALERTMANAGER: false
       PROMETHEUS_ADDITIONAL_FLAGS: '--web.enable-lifecycle --web.enable-admin-api'
@@ -1270,35 +1347,19 @@ dockerCommands:
         WORKERS: 1
         ROCKET_ADDRESS: 0.0.0.0
 
-  qdrant:
-    docker:
-      image: sourcegraph/qdrant:insiders
-      ports:
-        - 6333
-        - 6334
-      volumes:
-        - from: $HOME/.sourcegraph-dev/data/qdrant_data
-          to: /data
-      env:
-        QDRANT__SERVICE__GRPC_PORT: 6334
-        QDRANT__LOG_LEVEL: INFO
-        QDRANT__STORAGE__STORAGE_PATH: /data
-        QDRANT__STORAGE__SNAPSHOTS_PATH: /data
-        QDRANT_INIT_FILE_PATH: /data/.qdrant-initialized
-
 #
 # CommandSets ################################################################
 #
 defaultCommandset: enterprise
 commandsets:
   enterprise-bazel: &enterprise_bazel_set
-    requiresDevPrivate: true
     checks:
       - redis
       - postgres
       - git
       - bazelisk
       - ibazel
+      - dev-private
     bazelCommands:
       - blobstore
       - docsite
@@ -1320,12 +1381,12 @@ commandsets:
 
   # If you modify this command set, please consider also updating the dotcom runset.
   enterprise: &enterprise_set
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1345,7 +1406,6 @@ commandsets:
       - zoekt-web-1
       - blobstore
       - embeddings
-      - telemetry-gateway
     env:
       DISABLE_CODE_INSIGHTS_HISTORICAL: false
       DISABLE_CODE_INSIGHTS: false
@@ -1359,12 +1419,12 @@ commandsets:
 
   dotcom:
     # This is 95% the enterprise runset, with the addition of Cody Gateway.
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1375,7 +1435,6 @@ commandsets:
       - searcher
       - symbols
       - caddy
-      - docsite
       - syntax-highlighter
       - zoekt-index-0
       - zoekt-index-1
@@ -1383,13 +1442,12 @@ commandsets:
       - zoekt-web-1
       - blobstore
       - embeddings
-      - telemetry-gateway
       - cody-gateway
+      - enterprise-portal # required by Cody Gateway
     env:
       SOURCEGRAPHDOTCOM_MODE: true
 
   codeintel-bazel: &codeintel_bazel_set
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
@@ -1397,6 +1455,7 @@ commandsets:
       - git
       - bazelisk
       - ibazel
+      - dev-private
     bazelCommands:
       - blobstore
       - frontend
@@ -1422,12 +1481,12 @@ commandsets:
       - prometheus
 
   codeintel-syntactic:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - web
@@ -1440,12 +1499,12 @@ commandsets:
       - syntactic-code-intel-worker-1
 
   codeintel:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1471,12 +1530,12 @@ commandsets:
       - prometheus
 
   codeintel-kubernetes:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1502,12 +1561,12 @@ commandsets:
       - prometheus
 
   enterprise-codeintel:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1532,12 +1591,12 @@ commandsets:
       - grafana
       - prometheus
   enterprise-codeintel-multi-queue-executor:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1566,12 +1625,12 @@ commandsets:
     <<: *codeintel_bazel_set
 
   enterprise-codeinsights:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1594,12 +1653,12 @@ commandsets:
       DISABLE_CODE_INSIGHTS: false
 
   api-only:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1615,12 +1674,12 @@ commandsets:
       - blobstore
 
   batches:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1642,12 +1701,12 @@ commandsets:
       - batcheshelper-builder
 
   batches-kubernetes:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - worker
@@ -1669,12 +1728,12 @@ commandsets:
       - batcheshelper-builder
 
   iam:
-    requiresDevPrivate: true
     checks:
       - docker
       - redis
       - postgres
       - git
+      - dev-private
     commands:
       - frontend
       - repo-updater
@@ -1731,11 +1790,6 @@ commandsets:
     env:
       SK_PORT: 3080
 
-  web-standalone-prod:
-    commands:
-      - web-standalone-http-prod
-      - caddy
-
   # For testing our OpenTelemetry stack
   otel:
     checks:
@@ -1744,19 +1798,20 @@ commandsets:
       - otel-collector
       - jaeger
 
-  single-program:
-    requiresDevPrivate: true
+  # NOTE: This is an experimental way of running a subset of Sourcegraph. See
+  # cmd/sourcegraph/README.md.
+  single-program-experimental-blame-sqs:
     checks:
       - git
+      - dev-private
+      - redis
     commands:
       - sourcegraph
       - web
       - caddy
     env:
-      DISABLE_CODE_INSIGHTS: false
-      PRECISE_CODE_INTEL_UPLOAD_AWS_ENDPOINT: http://localhost:49000
-      EMBEDDINGS_UPLOAD_AWS_ENDPOINT: http://localhost:49000
-      USE_EMBEDDED_POSTGRESQL: false
+      # Faster builds in local dev.
+      DEV_WEB_BUILDER_NO_SPLITTING: 1
 
   cody-gateway:
     checks:
@@ -1769,61 +1824,6 @@ commandsets:
       - redis
     bazelCommands:
       - cody-gateway
-
-  qdrant:
-    commands:
-      - qdrant
-      - frontend
-      - worker
-      - repo-updater
-      - web
-      - gitserver-0
-      - gitserver-1
-      - searcher
-      - caddy
-      - symbols
-      - docsite
-      - syntax-highlighter
-      - zoekt-index-0
-      - zoekt-index-1
-      - zoekt-web-0
-      - zoekt-web-1
-      - blobstore
-      - embeddings
-    env:
-      QDRANT_ENDPOINT: 'localhost:6334'
-
-  enterprise-bazel-sveltekit:
-    <<: *enterprise_bazel_set
-    env:
-      SVELTEKIT: true
-
-  enterprise-sveltekit:
-    <<: *enterprise_set
-    # Keep in sync with &enterprise_set.commands
-    commands:
-      - frontend
-      - worker
-      - repo-updater
-      - web
-      - web-sveltekit
-      - gitserver-0
-      - gitserver-1
-      - searcher
-      - caddy
-      - symbols
-      # TODO https://github.com/sourcegraph/devx-support/issues/537
-      # - docsite
-      - syntax-highlighter
-      - zoekt-index-0
-      - zoekt-index-1
-      - zoekt-web-0
-      - zoekt-web-1
-      - blobstore
-      - embeddings
-      - telemetry-gateway
-    env:
-      SVELTEKIT: true
 
 tests:
   # These can be run with `sg test [name]`
@@ -1861,8 +1861,7 @@ tests:
   bazel-web-integration:
     cmd: |
       export GH_TOKEN=$(gcloud secrets versions access latest --secret=GITHUB_TOKEN --quiet --project=sourcegraph-ci)
-      export PERCY_TOKEN=$(gcloud secrets versions access latest --secret=PERCY_TOKEN --quiet --project=sourcegraph-ci)
-      bazel test //client/web/src/integration:integration-tests --test_env=HEADLESS=false --test_env=SOURCEGRAPH_BASE_URL="http://localhost:7080" --test_env=GH_TOKEN=$GH_TOKEN --test_env=DISPLAY=$DISPLAY --test_env=PERCY_TOKEN=$PERCY_TOKEN
+      bazel test //client/web/src/integration:integration-tests --test_env=HEADLESS=false --test_env=SOURCEGRAPH_BASE_URL="http://localhost:7080" --test_env=GH_TOKEN=$GH_TOKEN --test_env=DISPLAY=$DISPLAY
 
   backend-integration:
     cmd: cd dev/gqltest && go test -long -base-url $BASE_URL -email $EMAIL -username $USERNAME -password $PASSWORD ./gqltest
@@ -1897,17 +1896,17 @@ tests:
 
   web-e2e:
     preamble: |
-      A Sourcegraph isntance must be already running for these tests to work, most
+      A Sourcegraph instance must be already running for these tests to work, most
       commonly with: `sg start enterprise-e2e`
 
-      See more details: https://sourcegraph.com/docs/dev/how-to/testing#running-end-to-end-tests
+      See more details: https://docs-legacy.sourcegraph.com/dev/how-to/testing#running-end-to-end-tests
     cmd: pnpm test-e2e
     env:
       TEST_USER_EMAIL: test@sourcegraph.com
       TEST_USER_PASSWORD: supersecurepassword
       SOURCEGRAPH_BASE_URL: https://sourcegraph.test:3443
       BROWSER: chrome
-    external_secrets:
+    externalSecrets:
       GH_TOKEN:
         project: 'sourcegraph-ci'
         name: 'BUILDKITE_GITHUBDOTCOM_TOKEN'
@@ -1917,7 +1916,7 @@ tests:
       A Sourcegraph instance must be already running for these tests to work, most
       commonly with: `sg start enterprise-e2e`
 
-      See more details: https://sourcegraph.com/docs/dev/how-to/testing#running-regression-tests
+      See more details: https://docs-legacy.sourcegraph.com/dev/how-to/testing#running-regression-tests
 
     cmd: pnpm test-regression
     env:
@@ -1931,7 +1930,7 @@ tests:
       A web application should be built for these tests to work, most
       commonly with: `sg run web-integration-build` or `sg run web-integration-build-prod` for production build.
 
-      See more details: https://sourcegraph.com/docs/dev/how-to/testing#running-integration-tests
+      See more details: https://docs-legacy.sourcegraph.com/dev/how-to/testing#running-integration-tests
 
     cmd: pnpm test-integration
 
@@ -1940,6 +1939,6 @@ tests:
       A Sourcegraph instance must be already running for these tests to work, most
       commonly with: `sg start web-standalone`
 
-      See more details: https://sourcegraph.com/docs/dev/how-to/testing#running-integration-tests
+      See more details: https://docs-legacy.sourcegraph.com/dev/how-to/testing#running-integration-tests
 
     cmd: pnpm test-integration:debug
